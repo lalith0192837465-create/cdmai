@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>CDM Setup</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> CDM Setup</div>
+
+    <div class="wprog"><i id="p1" class="on"></i><i id="p2"></i><i id="p3"></i></div>
+
+    <div id="step1" class="step">
+      <h2>Basics</h2>
+      <p class="lede">Where CDM will run. Leave the domain blank to just use it locally.</p>
+      <div class="field"><label>Domain (optional)</label>
+        <input id="domain" placeholder="https://cdm.yourcompany.com"></div>
+      <div class="field"><label>Port</label>
+        <input id="port" value="3000"></div>
+      <div class="nav-row"><span></span><button class="btn btn-primary" onclick="goStep(2)">Continue</button></div>
+    </div>
+
+    <div id="step2" class="step" style="display:none">
+      <h2>Integrations</h2>
+      <p class="lede">Paste keys as far as you have them — you can add the rest later.</p>
+      <div class="grid2">
+        <div class="field"><label>Google Client ID</label><input id="gid"></div>
+        <div class="field"><label>Google Client Secret</label><input id="gsecret"></div>
+      </div>
+      <div class="field"><label>Anthropic API key</label><input id="anthropic" placeholder="sk-ant-..."></div>
+      <div class="grid2">
+        <div class="field"><label>Recall.ai API key</label><input id="recall"></div>
+        <div class="field"><label>Recall region</label><input id="region" value="us-west-2"></div>
+      </div>
+      <div class="field"><label>Slack webhook URL</label><input id="slack"></div>
+      <div class="nav-row"><button class="btn btn-ghost" onclick="goStep(1)">Back</button><button class="btn btn-primary" onclick="goStep(3)">Continue</button></div>
+    </div>
+
+    <div id="step3" class="step" style="display:none">
+      <h2>Install &amp; launch</h2>
+      <p class="lede" id="preInstallText">This checks for Docker, installs it if needed, and starts CDM. You may see one Windows/Mac permission prompt — that's normal.</p>
+      <div id="log" class="log"></div>
+      <div id="errorBox" class="error" style="display:none"></div>
+      <div class="nav-row">
+        <button class="btn btn-ghost" onclick="goStep(2)" id="backBtn">Back</button>
+        <button class="btn btn-primary" id="installBtn" onclick="startInstall()">Install &amp; launch CDM</button>
+      </div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+version: "3.9"
+services:
+  app:
+    image: ${CDM_IMAGE:-ghcr.io/lalith0192837465-create/cdm:latest}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: cdm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: cdm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cdm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - cdm_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+volumes:
+  cdm_pgdata:
