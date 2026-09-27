@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
 import { redirect } from "next/navigation";
 
 type Deal = {
@@ -19,15 +18,19 @@ type Deal = {
 };
 
 export default function Dashboard() {
-  const { data: session, status } = useSession();
+  const [session, setSession] = useState<any>(null);
+  const [status, setStatus] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
   const [activeTab, setActiveTab] = useState<"awaiting" | "queue" | "custom">("awaiting");
   const [deals, setDeals] = useState<Deal[]>([]);
   const [expandedDealId, setExpandedDealId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (status === "unauthenticated") redirect("/auth/signin");
-  }, [status]);
+    fetch("/api/auth/session").then((r) => r.json()).then((data) => {
+      if (data && data.user) { setSession(data); setStatus("authenticated"); }
+      else { setStatus("unauthenticated"); redirect("/auth/signin"); }
+    }).catch(() => { setStatus("unauthenticated"); redirect("/auth/signin"); });
+  }, []);
 
   useEffect(() => {
     if (status === "authenticated") fetchDeals();
