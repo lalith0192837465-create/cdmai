@@ -75,7 +75,7 @@ NODE_ENV="production"
     const composeContents = `version: "3.9"
 services:
   app:
-    image: ${config.image || "ghcr.io/lalith0192837465-create/cdm:latest"}
+    image: ${config.image || "ghcr.io/lalith0192837465-create/cdmai:latest"}
     ports:
       - "${port}:3000"
     env_file: .env
