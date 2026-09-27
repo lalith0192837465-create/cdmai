@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 const RELEASES_BASE =
-  "https://github.com/lalith0192837465-create/cdm/releases/latest/download";
+  "https://github.com/lalith0192837465-create/cdmai/releases/latest/download";
 
 const OPTIONS = [
   { id: "win", label: "Windows", icon: "🪟", file: "CDM-Setup-Windows.exe" },
