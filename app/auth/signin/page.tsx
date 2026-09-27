@@ -1,6 +1,5 @@
 "use client";
 
-import { signIn } from "next-auth/react";
 
 export default function SignIn() {
   return (
@@ -17,7 +16,7 @@ export default function SignIn() {
           Sign in to manage your deal pipeline
         </p>
         <button
-          onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+          onClick={async () => { const { signIn } = await import("next-auth/react"); await signIn("google", { callbackUrl: "/dashboard" }); }}
           style={{
             width: "100%", padding: "12px", background: "#3b82f6", color: "white",
             border: "none", borderRadius: "8px", fontWeight: 500, fontSize: "14px",
