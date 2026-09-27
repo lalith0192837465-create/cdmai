@@ -1,11 +1,7 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import DownloadButtons from "./components/DownloadButtons";
 
 export default async function Home() {
-  const session = await getServerSession(authOptions);
-
   return (
     <div>
       <nav className="nav">
@@ -17,7 +13,7 @@ export default async function Home() {
           <div className="navlinks">
             <a href="#byoc">Self-host</a>
             <Link href="/demo">Demo</Link>
-            {session ? <Link href="/dashboard">Dashboard</Link> : <Link href="/auth/signin">Sign In</Link>}
+            <Link href="/auth/signin">Sign In</Link>
           </div>
         </div>
       </nav>
@@ -72,7 +68,7 @@ export default async function Home() {
           <DownloadButtons />
           <p style={{ textAlign: "center", color: "var(--muted)", fontSize: "0.85rem", marginTop: "24px" }}>
             Prefer to configure it by hand instead?{" "}
-            <a href="https://github.com/lalith0192837465-create/cdm#byoc-deployment-docker-compose" style={{ color: "var(--accent)" }}>
+            <a href="https://github.com/lalith0192837465-create/cdmai#byoc-deployment-docker-compose" style={{ color: "var(--accent)" }}>
               See the manual Docker Compose steps
             </a>
             .
