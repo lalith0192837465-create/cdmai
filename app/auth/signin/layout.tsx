@@ -1,5 +1,1 @@
-import { Providers } from "../../providers";
-
-export default function SignInLayout({ children }: { children: React.ReactNode }) {
-  return <Providers>{children}</Providers>;
-}
+export default function Layout({ children }: { children: React.ReactNode }) { return children; }
