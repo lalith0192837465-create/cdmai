@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   app:
-    image: ${CDM_IMAGE:-ghcr.io/lalith0192837465-create/cdm:latest}
+    image: ${CDM_IMAGE:-ghcr.io/lalith0192837465-create/cdmai:latest}
     ports:
       - "${APP_PORT:-3000}:3000"
     env_file: .env
