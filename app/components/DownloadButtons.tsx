@@ -6,9 +6,9 @@ const RELEASES_BASE =
   "https://github.com/lalith0192837465-create/cdmai/releases/latest/download";
 
 const OPTIONS = [
-  { id: "win", label: "Windows", icon: "🪟", file: "CDM-Setup-Windows.exe" },
-  { id: "mac", label: "macOS", icon: "🍎", file: "CDM-Setup-Mac.dmg" },
-  { id: "linux", label: "Linux", icon: "🐧", file: "CDM-Setup-Linux.AppImage" },
+  { id: "win", label: "Windows", file: "CDM-Setup-Windows.exe" },
+  { id: "mac", label: "macOS", file: "CDM-Setup-Mac.dmg" },
+  { id: "linux", label: "Linux", file: "CDM-Setup-Linux.AppImage" },
 ];
 
 function detectOS(): string {
@@ -35,7 +35,6 @@ export default function DownloadButtons() {
           className={`download-card${detected === opt.id ? " recommended" : ""}`}
         >
           {detected === opt.id && <span className="tag">Recommended for you</span>}
-          <div className="os-icon">{opt.icon}</div>
           <h3>{opt.label}</h3>
           <p>Download installer</p>
         </a>
