@@ -20,7 +20,6 @@ export default async function Home() {
 
       <div className="wrap">
         <section className="hero">
-          <span className="hero-badge">Bring your own cloud</span>
           <h1>Deal coordination, without the handoff</h1>
           <p>
             CDM listens to your Zoom sales calls, extracts the terms that matter, and routes the right
