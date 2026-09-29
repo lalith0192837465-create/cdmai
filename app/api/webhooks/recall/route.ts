@@ -21,6 +21,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, status: "waiting" });
     }
 
+    const testCall = await prisma.testCall.findFirst({ where: { recallBotId: bot_id } });
+    if (testCall) {
+      const transcript = await getTranscriptText(bot_id);
+      if (!transcript) {
+        await prisma.testCall.update({ where: { id: testCall.id }, data: { status: "failed", error: "No transcript was returned by Recall.ai" } });
+        return NextResponse.json({ success: true, status: "no_transcript" });
+      }
+      try {
+        const { generateTestCallReport } = await import("@/lib/test-report");
+        const report = await generateTestCallReport(transcript, testCall.customerName);
+        await prisma.testCall.update({ where: { id: testCall.id }, data: { transcript, report: JSON.stringify(report), status: "complete" } });
+        return NextResponse.json({ success: true, status: "test_call_complete" });
+      } catch (error) {
+        console.error("Test call report error:", error);
+        await prisma.testCall.update({ where: { id: testCall.id }, data: { status: "failed", error: "The call was captured but the report could not be generated" } });
+        return NextResponse.json({ success: true, status: "report_failed" });
+      }
+    }
+
     const transcript = await getTranscriptText(bot_id);
     if (!transcript) {
       return NextResponse.json({ success: true, status: "no_transcript" });
