@@ -93,3 +93,21 @@ model RecallWebhookLog {
   processedAt Boolean  @default(false)
   createdAt   DateTime @default(now())
 }
+model TestCall {
+  id          String   @id @default(cuid())
+  accessToken String   @unique
+  zoomUrl     String
+  customerName String?
+  contactEmail String?
+  recallBotId String?  @unique
+  status      String   @default("starting")
+  transcript  String?
+  report      String?
+  error       String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([expiresAt])
+}
