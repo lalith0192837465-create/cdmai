@@ -8,10 +8,10 @@ export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
     const bot_id = payload.bot_id || payload.bot?.id || payload.data?.bot_id || payload.data?.bot?.id;
-    const status = payload.status || payload.event || payload.data?.status || payload.data?.status?.code;
+    const status = payload.status || payload.event || payload.type || payload.data?.status || payload.data?.status?.code || payload.data?.new_status;
     if (!bot_id) return NextResponse.json({ error: "Missing bot_id" }, { status: 400 });
     await prisma.recallWebhookLog.create({ data: { botId: String(bot_id), status: String(status || "unknown"), payload: JSON.stringify(payload) } });
-    const done = ["done", "completed", "bot.completed", "transcript.completed"].includes(String(status));
+    const done = ["done", "finished", "completed", "bot.completed", "transcript.completed"].includes(String(status));
     if (!done) return NextResponse.json({ success: true, status: "waiting" });
 
     const testCall = await prisma.testCall.findFirst({ where: { recallBotId: String(bot_id) } });
