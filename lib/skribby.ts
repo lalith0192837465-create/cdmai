@@ -41,7 +41,7 @@ export async function getSkribbyTranscriptText(botId: string): Promise<string> {
   const segments = Array.isArray(bot.transcript) ? bot.transcript : [];
   return segments.map((segment: any) => {
     const speaker = segment.speaker_name || segment.speaker || "Unknown";
-    const text = segment.transcript || segment.text || "";
+    const text = segment.transcript || segment.text || segment.content || (Array.isArray(segment.words) ? segment.words.map((word: any) => word.text || "").join(" ") : "");
     return `${speaker}: ${text}`;
   }).filter(Boolean).join("\n");
 }
