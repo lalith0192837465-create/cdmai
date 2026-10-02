@@ -26,7 +26,10 @@ export default async function Home() {
             work to Engineering, Finance, and Legal — with one human confirmation before anything fires.
           </p>
           <div className="cta-row">
-            <Link href="/demo" className="btn btn-primary">
+            <Link href="/test-call" className="btn btn-primary">
+              Run the 10-minute test →
+            </Link>
+            <Link href="/demo" className="btn btn-ghost">
               Try the demo →
             </Link>
             <a href="#byoc" className="btn btn-ghost">
