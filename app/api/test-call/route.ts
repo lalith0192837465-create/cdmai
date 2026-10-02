@@ -12,7 +12,8 @@ function webhookUrl(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (process.env.TEST_CALL_ENABLED === "false") return NextResponse.json({ error: "Test calls are temporarily unavailable" }, { status: 503 });
   const body = await request.json().catch(() => ({}));
-  const meetingUrl = String(body.meetingUrl || body.zoomUrl || process.env.DEFAULT_TEST_MEETING_URL || "https://meet.google.com/ckx-kdzc-rdi");
+  const meetingUrl = String(body.meetingUrl || body.zoomUrl || "").trim();
+  if (!meetingUrl) return NextResponse.json({ error: "A Google Meet link is required" }, { status: 400 });
   try {
     const u = new URL(meetingUrl);
     if (u.protocol !== "https:" || u.hostname !== "meet.google.com") throw new Error();
