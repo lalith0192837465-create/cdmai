@@ -22,7 +22,7 @@ export default async function Home() {
         <section className="hero">
           <h1>Deal coordination, without the handoff</h1>
           <p>
-            CDM listens to your Zoom sales calls, extracts the terms that matter, and routes the right
+            CDM listens to your Google Meet sales calls, extracts the terms that matter, and routes the right
             work to Engineering, Finance, and Legal — with one human confirmation before anything fires.
           </p>
           <div className="cta-row">
@@ -45,7 +45,7 @@ export default async function Home() {
           <p className="lede">Four steps, one human in the loop.</p>
           <div className="grid-4">
             {[
-              { num: "01", title: "Listen", desc: "CDM joins your Zoom sales calls" },
+              { num: "01", title: "Listen", desc: "CDM joins your Google Meet sales calls" },
               { num: "02", title: "Understand", desc: "AI extracts the deal terms" },
               { num: "03", title: "Confirm", desc: "One human approves the action" },
               { num: "04", title: "Route", desc: "Teams get their specific work" },
