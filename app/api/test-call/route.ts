@@ -12,7 +12,7 @@ function webhookUrl(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (process.env.TEST_CALL_ENABLED === "false") return NextResponse.json({ error: "Test calls are temporarily unavailable" }, { status: 503 });
   const body = await request.json().catch(() => ({}));
-  const meetingUrl = String(body.meetingUrl || body.zoomUrl || "");
+  const meetingUrl = String(body.meetingUrl || body.zoomUrl || process.env.DEFAULT_TEST_MEETING_URL || "https://meet.google.com/ckx-kdzc-rdi");
   try {
     const u = new URL(meetingUrl);
     if (u.protocol !== "https:" || u.hostname !== "meet.google.com") throw new Error();
@@ -26,8 +26,8 @@ export async function POST(request: NextRequest) {
     await prisma.testCall.update({ where: { id: testCall.id }, data: { recallBotId: bot.id, status: "waiting" } });
     return NextResponse.json({ token: accessToken, status: "waiting", botId: bot.id, reportUrl: `/test-call?token=${accessToken}` });
   } catch (error) {
-    console.error("Skribby bot creation failed", error);
-    await prisma.testCall.update({ where: { id: testCall.id }, data: { status: "failed", error: "Skribby could not join this Google Meet" } });
+    console.error("CDM test meeting creation failed", error);
+    await prisma.testCall.update({ where: { id: testCall.id }, data: { status: "failed", error: "CDM could not join this Google Meet" } });
     return NextResponse.json({ error: "Could not start the test. Check the Google Meet link and try again." }, { status: 502 });
   }
 }
