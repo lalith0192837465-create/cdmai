@@ -29,15 +29,25 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { zoomUrl, zoomMeetingId } = body;
+    const meetingUrl = String(body.meetingUrl || body.zoomUrl || "").trim();
+    const zoomMeetingId = body.zoomMeetingId;
 
-    if (!zoomUrl) {
-      return NextResponse.json({ error: "zoomUrl is required" }, { status: 400 });
+    if (!meetingUrl) {
+      return NextResponse.json({ error: "meetingUrl is required" }, { status: 400 });
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(meetingUrl);
+      const allowed = parsedUrl.protocol === "https:" && (parsedUrl.hostname === "meet.google.com" || parsedUrl.hostname === "zoom.us" || parsedUrl.hostname.endsWith(".zoom.us"));
+      if (!allowed) throw new Error("unsupported host");
+    } catch {
+      return NextResponse.json({ error: "Use a valid Zoom or Google Meet link" }, { status: 400 });
     }
 
     const deal = await prisma.deal.create({
       data: {
-        zoomUrl,
+        zoomUrl: meetingUrl,
         zoomMeetingId: zoomMeetingId || null,
         customerName: "Pending extraction",
         createdBy: (session.user as any).id,
