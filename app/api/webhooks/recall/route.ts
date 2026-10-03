@@ -7,15 +7,18 @@ import { notifyFinance, notifyEngineering, notifyLegal } from "@/lib/slack";
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
-    const bot_id = payload.bot_id || payload.bot?.id || payload.data?.bot_id || payload.data?.bot?.id;
-    const status = payload.data?.new_status || payload.status || payload.event || payload.type || payload.data?.status || payload.data?.status?.code;
+    const bot_id = payload.bot_id || payload.bot?.id || payload.data?.bot_id || payload.data?.bot?.id || payload.data?.id;
+    const rawStatus = payload.data?.new_status || payload.new_status || payload.status || payload.event || payload.type || payload.data?.status || payload.data?.status?.code;
+    const status = typeof rawStatus === "object" ? (rawStatus.code || rawStatus.name || rawStatus.status || "unknown") : String(rawStatus || "unknown");
     if (!bot_id) return NextResponse.json({ error: "Missing bot_id" }, { status: 400 });
-    await prisma.recallWebhookLog.create({ data: { botId: String(bot_id), status: String(status || "unknown"), payload: JSON.stringify(payload) } });
-    const done = ["done", "finished", "completed", "bot.completed", "transcript.completed"].includes(String(status));
+    await prisma.recallWebhookLog.create({ data: { botId: String(bot_id), status: String(status), payload: JSON.stringify(payload) } });
+    const normalizedStatus = String(status).toLowerCase().replace(/[ _-]+/g, ".");
+    const done = ["done", "finished", "completed", "stopped", "ended", "bot.completed", "bot.finished", "bot.stopped", "transcript.completed"].includes(normalizedStatus);
     if (!done) return NextResponse.json({ success: true, status: "waiting" });
 
     const testCall = await prisma.testCall.findFirst({ where: { recallBotId: String(bot_id) } });
     if (testCall) {
+      if (testCall.status === "complete" || testCall.status === "failed") return NextResponse.json({ success: true, status: "already_processed" });
       let transcript = "";
       const segments = Array.isArray(payload.transcript) ? payload.transcript : Array.isArray(payload.data?.transcript) ? payload.data.transcript : [];
       if (segments.length) transcript = segments.map((x: any) => `${x.speaker_name || x.speaker || "Unknown"}: ${x.transcript || x.text || ""}`).join("\n");
