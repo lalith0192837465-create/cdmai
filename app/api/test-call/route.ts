@@ -36,7 +36,34 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const token = new URL(request.url).searchParams.get("token");
   if (!token) return NextResponse.json({ error: "token is required" }, { status: 400 });
-  const call = await prisma.testCall.findUnique({ where: { accessToken: token } });
+  let call = await prisma.testCall.findUnique({ where: { accessToken: token } });
   if (!call || call.expiresAt < new Date()) return NextResponse.json({ error: "This test link has expired" }, { status: 404 });
+
+  // Poll the meeting provider as a fallback when a webhook is delayed or missed.
+  // This keeps the report on the same page the user is already watching.
+  if (call.recallBotId && call.status !== "complete" && call.status !== "failed") {
+    try {
+      const { getSkribbyBot, getSkribbyTranscriptText } = await import("@/lib/skribby");
+      const bot = await getSkribbyBot(String(call.recallBotId));
+      const providerStatus = String(bot.status || "").toLowerCase();
+      const terminal = ["completed", "complete", "finished", "finished_successfully", "stopped", "ended", "not_admitted", "failed", "error"].includes(providerStatus);
+      if (terminal) {
+        if (["not_admitted", "failed", "error"].includes(providerStatus)) {
+          call = await prisma.testCall.update({ where: { id: call.id }, data: { status: "failed", error: providerStatus === "not_admitted" ? "CDM was not admitted to the Google Meet" : "The CDM test meeting ended before a report could be created" } });
+        } else {
+          const transcript = await getSkribbyTranscriptText(String(call.recallBotId));
+          if (!transcript.trim()) {
+            call = await prisma.testCall.update({ where: { id: call.id }, data: { status: "failed", error: "The meeting ended but no transcript was returned" } });
+          } else {
+            const { generateTestCallReport } = await import("@/lib/test-report");
+            const report = await generateTestCallReport(transcript, call.customerName);
+            call = await prisma.testCall.update({ where: { id: call.id }, data: { transcript, report: JSON.stringify(report), status: "complete", error: null } });
+          }
+        }
+      }
+    } catch (error) {
+      console.error("CDM test status polling failed", error);
+    }
+  }
   return NextResponse.json({ status: call.status, report: call.report ? JSON.parse(call.report) : null, error: call.error });
 }
