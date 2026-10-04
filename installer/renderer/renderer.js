@@ -1,58 +1,6 @@
-function goStep(n) {
-  for (const s of [1, 2, 3]) {
-    document.getElementById("step" + s).style.display = s === n ? "" : "none";
-    document.getElementById("p" + s).classList.toggle("on", s <= n);
-  }
-}
-
-function val(id) {
-  return document.getElementById(id).value.trim();
-}
-
-function logLine(text) {
-  const log = document.getElementById("log");
-  const line = document.createElement("div");
-  line.textContent = text;
-  log.appendChild(line);
-  log.scrollTop = log.scrollHeight;
-}
-
-window.api.onStatus((status) => logLine(status));
-
-let installing = false;
-
-async function startInstall() {
-  if (installing) return;
-  installing = true;
-  document.getElementById("installBtn").disabled = true;
-  document.getElementById("installBtn").textContent = "Installing...";
-  document.getElementById("errorBox").style.display = "none";
-  document.getElementById("log").innerHTML = "";
-  logLine("Checking for Docker...");
-
-  const config = {
-    domain: val("domain"),
-    port: val("port"),
-    gid: val("gid"),
-    gsecret: val("gsecret"),
-    anthropic: val("anthropic"),
-    recall: val("recall"),
-    region: val("region"),
-    slack: val("slack"),
-  };
-
-  const result = await window.api.installAndLaunch(config);
-  installing = false;
-  document.getElementById("installBtn").disabled = false;
-  document.getElementById("installBtn").textContent = "Retry";
-
-  if (result.ok) {
-    logLine(`CDM is running at ${result.url}`);
-    document.getElementById("installBtn").textContent = "Done — open CDM again";
-    document.getElementById("installBtn").onclick = () => window.open(result.url);
-  } else {
-    const box = document.getElementById("errorBox");
-    box.textContent = result.error;
-    box.style.display = "block";
-  }
-}
+function goStep(n){for(const s of [1,2,3]){document.getElementById("step"+s).style.display=s===n?"":"none";document.getElementById("p"+s).classList.toggle("on",s<=n)}}
+function val(id){return document.getElementById(id)?.value.trim()||""}
+function chooseTarget(target){if(target!=="local"){document.getElementById("cloudNote").style.display="block";document.getElementById("cloudNote").innerHTML=target==="aws"?"AWS setup package selected. Click below to download it, then follow its README and provide your AWS credentials when Terraform asks.":"Google Cloud setup package selected. Click below to download it, then follow its README and provide your Google Cloud project and keys when Terraform asks.";const b=document.createElement("button");b.className="btn btn-primary";b.textContent="Download "+(target==="aws"?"AWS":"Google Cloud")+" setup";b.onclick=()=>window.api.openCloudPackage(target);document.getElementById("cloudNote").appendChild(b);return}goStep(2)}
+function logLine(text){const log=document.getElementById("log");const line=document.createElement("div");line.textContent=text;log.appendChild(line);log.scrollTop=log.scrollHeight}
+window.api.onStatus((status)=>logLine(status));let installing=false;
+async function startInstall(){if(installing)return;installing=true;const btn=document.getElementById("installBtn");btn.disabled=true;btn.textContent="Installing...";document.getElementById("errorBox").style.display="none";document.getElementById("log").innerHTML="";logLine("Checking Docker...");const result=await window.api.installAndLaunch({port:val("port"),gid:val("gid"),gsecret:val("gsecret"),anthropic:val("anthropic"),skribby:val("skribby"),webhook:val("webhook"),slack:val("slack")});installing=false;btn.disabled=false;btn.textContent=result.ok?"Open CDM again":"Retry";if(result.ok){logLine(`CDM is running at ${result.url}`);btn.onclick=()=>window.open(result.url)}else{const box=document.getElementById("errorBox");box.textContent=result.error;box.style.display="block"}}
