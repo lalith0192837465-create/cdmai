@@ -1,36 +1,49 @@
-name: Build installer
-
+name: Build CDM installers and cloud packages
 on:
   push:
-    tags:
-      - "v*"
-
+    tags: ["v*"]
 permissions:
   contents: write
-
 jobs:
-  build:
+  desktop:
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: installer
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - run: npm install
-
       - run: npx electron-builder --publish never
-
-      - name: Upload to release
+      - name: Upload desktop installer
         uses: softprops/action-gh-release@v2
         with:
-          files: installer/dist/CDM-Setup-*.{exe,dmg,AppImage}
+          files: installer/dist/CDM-Setup-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  cloud-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build cloud deployment packages
+        run: |
+          rm -rf /tmp/cdm-packages && mkdir -p /tmp/cdm-packages/aws /tmp/cdm-packages/gcp
+          cp -R infra/aws/. /tmp/cdm-packages/aws/
+          cp -R infra/gcp/. /tmp/cdm-packages/gcp/
+          printf 'CDM deployment package built from commit %s\n' "$GITHUB_SHA" > /tmp/cdm-packages/VERSION.txt
+          cd /tmp/cdm-packages
+          zip -qr "$GITHUB_WORKSPACE/CDM-AWS-Setup.zip" aws VERSION.txt
+          zip -qr "$GITHUB_WORKSPACE/CDM-Google-Cloud-Setup.zip" gcp VERSION.txt
+      - name: Upload cloud packages
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            CDM-AWS-Setup.zip
+            CDM-Google-Cloud-Setup.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
