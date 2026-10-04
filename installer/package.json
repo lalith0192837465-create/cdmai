@@ -2,7 +2,7 @@
   "name": "cdm-installer",
   "version": "1.0.0",
   "private": true,
-  "description": "CDM self-host installer — sets up Docker, the app, and the database with no terminal use.",
+  "description": "CDM self-host installer \u2014 sets up Docker, the app, and the database with no terminal use.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -15,7 +15,12 @@
   "build": {
     "appId": "com.cdm.installer",
     "productName": "CDM Setup",
-    "files": ["main.js", "preload.js", "docker-setup.js", "renderer/**/*"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "docker-setup.js",
+      "renderer/**/*"
+    ],
     "win": {
       "target": "nsis",
       "artifactName": "CDM-Setup-Windows.${ext}"
@@ -24,10 +29,6 @@
       "target": "dmg",
       "artifactName": "CDM-Setup-Mac.${ext}",
       "hardenedRuntime": true
-    },
-    "linux": {
-      "target": ["AppImage"],
-      "artifactName": "CDM-Setup-Linux.${ext}"
     }
   }
 }
