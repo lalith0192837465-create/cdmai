@@ -9,5 +9,6 @@ variable "google_client_id" { type = string default = "" }
 variable "google_client_secret" { type = string sensitive = true default = "" }
 variable "gemini_api_key" { type = string sensitive = true default = "" }
 variable "anthropic_api_key" { type = string sensitive = true default = "" }
+variable "gemini_api_key" { type = string sensitive = true default = "" }
 variable "skribby_api_key" { type = string sensitive = true default = "" }
 variable "webhook_secret" { type = string sensitive = true default = "" }
