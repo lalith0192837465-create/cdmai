@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "CDM — Deal coordination without the handoff",
-  description: "Turn Zoom calls into coordinated deal action",
+  description: "Turn sales calls into coordinated deal action",
 };
 
 export default function RootLayout({
