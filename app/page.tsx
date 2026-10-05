@@ -12,7 +12,6 @@ export default async function Home() {
           </div>
           <div className="navlinks">
             <a href="#byoc">Self-host</a>
-            <Link href="/demo">Demo</Link>
             <Link href="/auth/signin">Sign In</Link>
           </div>
         </div>
@@ -28,9 +27,6 @@ export default async function Home() {
           <div className="cta-row">
             <Link href="/test-call" className="btn btn-primary">
               Run the 10-minute test →
-            </Link>
-            <Link href="/demo" className="btn btn-ghost">
-              Try the demo →
             </Link>
             <a href="#byoc" className="btn btn-ghost">
               Self-host it
@@ -64,8 +60,7 @@ export default async function Home() {
         <div className="wrap">
           <h2>Run it in your own cloud</h2>
           <p className="lede">
-            Download the installer — it checks for Docker, asks a few setup questions, and brings the
-            whole stack up on your machine. No terminal required.
+            Choose Windows, macOS, AWS, or Google Cloud. The guided setup asks for your own credentials and brings the current CDM stack up without requiring a terminal.
           </p>
           <DownloadButtons />
           <p style={{ textAlign: "center", color: "var(--muted)", fontSize: "0.85rem", marginTop: "24px" }}>
