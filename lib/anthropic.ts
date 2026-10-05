@@ -17,8 +17,20 @@ export interface ExtractedDeal {
 export async function extractDealFromTranscript(
   transcript: string
 ): Promise<ExtractedDeal | null> {
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+  if (geminiKey) {
+    try {
+      const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`, {
+        systemInstruction: { parts: [{ text: `You are a deal extraction AI. Return ONLY valid JSON with customerName, dealName, dealAmount, dealTerm, discount, trialDays, customRequirements, financeNotes, engineeringNotes, legalNotes, confidence. If no clearly closed deal, return {"uncertain":true}.` }] },
+        contents: [{ role: "user", parts: [{ text: `Extract deal information from this transcript:\n\n${transcript}` }] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
+      });
+      const text = response.data.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+      const parsed = JSON.parse(text); if (parsed.uncertain) return null; return parsed as ExtractedDeal;
+    } catch (error) { console.error("Gemini extraction error:", error); return null; }
+  }
   if (!process.env.ANTHROPIC_API_KEY) {
-    console.error("ANTHROPIC_API_KEY not set");
+    console.error("ANTHROPIC_API_KEY or GEMINI_API_KEY not set");
     return null;
   }
 
