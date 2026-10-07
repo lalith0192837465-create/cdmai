@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Enter a valid Google Meet link" }, { status: 400 });
   }
   const accessToken = crypto.randomBytes(24).toString("base64url");
-  const testCall = await prisma.testCall.create({ data: { accessToken, zoomUrl: meetingUrl, customerName: body.customerName ? String(body.customerName).slice(0, 120) : null, contactEmail: body.contactEmail ? String(body.contactEmail).slice(0, 200) : null, expiresAt: new Date(Date.now() + 60 * 60 * 1000) } });
+  const testCall = await prisma.testCall.create({ data: { accessToken, zoomUrl: meetingUrl, customerName: body.customerName ? String(body.customerName).slice(0, 120) : null, contactEmail: body.contactEmail ? String(body.contactEmail).slice(0, 200) : null, expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000) } });
   try {
     const bot = await startSkribbyBot(meetingUrl, webhookUrl(request));
     await prisma.testCall.update({ where: { id: testCall.id }, data: { recallBotId: bot.id, status: "waiting" } });
