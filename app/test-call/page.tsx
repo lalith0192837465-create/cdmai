@@ -43,7 +43,7 @@ export default function TestCallPage() {
       {error && <p style={{ color: "#f87171" }}>{error}</p>}
     </form> : <section style={{ marginTop: 30, background: "#131316", border: "1px solid #26262C", borderRadius: 16, padding: 24 }}>
       <h2>{data?.status === "complete" ? "Your report is ready" : data?.status === "failed" ? "Test could not finish" : "Test started"}</h2>
-      {data?.status === "waiting" && <><p style={{ color: "#8F8F98" }}>Now open this Google Meet link, admit CDM if asked, and speak normally. When finished, leave the meeting. Keep it under ten minutes.</p><a href={meetingUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, color: "#9aa7ff", wordBreak: "break-all" }}>{meetingUrl}</a></>}
+      {data?.status === "waiting" && <><p style={{ color: "#8F8F98" }}>Now open this Google Meet link, admit CDM if asked, and speak normally. This is still the 10-minute test, but the meeting can run for up to one hour. Leave the meeting when finished.</p><a href={meetingUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 8, color: "#9aa7ff", wordBreak: "break-all" }}>{meetingUrl}</a></>}
       {data?.status === "complete" && <p style={{ color: "#8F8F98" }}>The call was captured and analyzed.</p>}
       {data?.status === "failed" && <p style={{ color: "#f87171" }}>{data.error}</p>}
       {report && <div style={{ marginTop: 24 }}><h3>Summary</h3><p>{report.summary}</p>{report.keyTerms?.length > 0 && <><h3>Key terms</h3><ul>{report.keyTerms.map((x: string) => <li key={x}>{x}</li>)}</ul></>}{report.nextSteps?.length > 0 && <><h3>Suggested next steps</h3><ul>{report.nextSteps.map((x: string) => <li key={x}>{x}</li>)}</ul></>}</div>}
