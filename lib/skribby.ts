@@ -21,7 +21,7 @@ export async function startSkribbyBot(meetingUrl: string, webhookUrl: string) {
     lang: "en",
     webhook_url: webhookUrl,
     stop_options: {
-      time_limit: 600,
+      time_limit: 3600,
       waiting_room_timeout: 10,
       recording_start_timeout: 5,
       empty_meeting_timeout: 5,
