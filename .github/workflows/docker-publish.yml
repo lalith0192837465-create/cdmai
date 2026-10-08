@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
 
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: ${{ secrets.GCP_REGION }}
+  GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -20,7 +25,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Google Artifact Registry
+        if: env.GCP_PROJECT_ID != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GCP_REGION }}-docker.pkg.dev
+          username: _json_key
+          password: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Build and push to GHCR
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -28,3 +51,13 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/cdmai:latest
             ghcr.io/${{ github.repository_owner }}/cdmai:${{ github.sha }}
+
+      - name: Build and push to Google Artifact Registry
+        if: env.GCP_PROJECT_ID != ''
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/cdm-images/cdm:latest
+            ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/cdm-images/cdm:${{ github.sha }}
