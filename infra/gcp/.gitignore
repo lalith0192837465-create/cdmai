@@ -1,6 +1,12 @@
+# Terraform
 *.tfstate
 *.tfstate.*
-.terraform/
 *.tfvars
-!terraform.tfvars.example
-.crash.log
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
+
+# IDE
+.vscode/
+.idea/
+*.swp
