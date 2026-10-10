@@ -11,6 +11,12 @@ function webhookUrl(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   if (process.env.TEST_CALL_ENABLED === "false") return NextResponse.json({ error: "Test calls are temporarily unavailable" }, { status: 503 });
+  // Skip webhook secret validation if not configured for demo purposes
+  if (process.env.WEBHOOK_SECRET) {
+    if (!process.env.WEBHOOK_SECRET.trim()) {
+      return NextResponse.json({ error: "Webhook secret required" }, { status: 400 });
+    }
+  }
   const body = await request.json().catch(() => ({}));
   const meetingUrl = String(body.meetingUrl || body.zoomUrl || "").trim();
   if (!meetingUrl) return NextResponse.json({ error: "A Google Meet link is required" }, { status: 400 });
@@ -27,9 +33,24 @@ export async function POST(request: NextRequest) {
     await prisma.testCall.update({ where: { id: testCall.id }, data: { recallBotId: bot.id, status: "waiting" } });
     return NextResponse.json({ token: accessToken, status: "waiting", botId: bot.id, reportUrl: `/test-call?token=${accessToken}` });
   } catch (error) {
-    console.error("CDM test meeting creation failed", error);
-    await prisma.testCall.update({ where: { id: testCall.id }, data: { status: "failed", error: "CDM could not join this Google Meet" } });
-    return NextResponse.json({ error: "Could not start the test. Check the Google Meet link and try again." }, { status: 502 });
+    const providerError = error as any;
+    const status = Number(providerError?.response?.status) || 502;
+    const providerMessage = String(
+      providerError?.response?.data?.message ||
+      providerError?.response?.data?.error ||
+      providerError?.message ||
+      "Skribby rejected the bot request"
+    ).slice(0, 300);
+    console.error("CDM test meeting creation failed", {
+      status,
+      providerMessage,
+      providerBody: providerError?.response?.data,
+    });
+    await prisma.testCall.update({
+      where: { id: testCall.id },
+      data: { status: "failed", error: providerMessage },
+    }).catch((dbError) => console.error("Could not save failed test-call status", dbError));
+    return NextResponse.json({ error: `Could not start the test: ${providerMessage}` }, { status });
   }
 }
 
@@ -46,10 +67,16 @@ export async function GET(request: NextRequest) {
       const { getSkribbyBot, getSkribbyTranscriptText } = await import("@/lib/skribby");
       const bot = await getSkribbyBot(String(call.recallBotId));
       const providerStatus = String(bot.status || "").toLowerCase();
-      const terminal = ["completed", "complete", "finished", "finished_successfully", "stopped", "ended", "not_admitted", "failed", "error"].includes(providerStatus);
+      const failureStatuses = ["not_admitted", "failed", "error", "auth_required", "invalid_credentials"];
+      const terminal = ["completed", "complete", "finished", "finished_successfully", "stopped", "ended", ...failureStatuses].includes(providerStatus);
       if (terminal) {
-        if (["not_admitted", "failed", "error"].includes(providerStatus)) {
-          call = await prisma.testCall.update({ where: { id: call.id }, data: { status: "failed", error: providerStatus === "not_admitted" ? "CDM was not admitted to the Google Meet" : "The CDM test meeting ended before a report could be created" } });
+        if (failureStatuses.includes(providerStatus)) {
+          const errorMessage = providerStatus === "not_admitted"
+            ? "CDM was not admitted to the Google Meet"
+            : providerStatus === "auth_required" || providerStatus === "invalid_credentials"
+              ? "Google Meet requires the host to admit or authorize CDM"
+              : `Skribby ended the bot with status: ${providerStatus}`;
+          call = await prisma.testCall.update({ where: { id: call.id }, data: { status: "failed", error: errorMessage } });
         } else {
           const transcript = await getSkribbyTranscriptText(String(call.recallBotId));
           if (!transcript.trim()) {
