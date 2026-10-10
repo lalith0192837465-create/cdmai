@@ -21,14 +21,18 @@ export async function startSkribbyBot(meetingUrl: string, webhookUrl: string) {
     lang: "en",
     webhook_url: webhookUrl,
     stop_options: {
-      time_limit: 3600,
+      time_limit: 60, // Provider safety cap is 60 minutes; the guided product test remains presented as a 10-minute test.
       waiting_room_timeout: 10,
-      recording_start_timeout: 5,
-      empty_meeting_timeout: 5,
+      recording_start_timeout: 10,
+      empty_meeting_timeout: 10,
       last_person_detection: 2,
     },
   }, { headers: headers(), timeout: 30000 });
-  return response.data;
+  const bot = response.data?.bot || response.data;
+  if (!bot?.id || typeof bot.id !== "string") {
+    throw new Error("Skribby accepted the request but did not return a bot ID");
+  }
+  return bot;
 }
 
 export async function getSkribbyBot(botId: string) {
