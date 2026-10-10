@@ -26,8 +26,29 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Enter a valid Google Meet link" }, { status: 400 });
   }
-  const accessToken = crypto.randomBytes(24).toString("base64url");
-  const testCall = await prisma.testCall.create({ data: { accessToken, zoomUrl: meetingUrl, customerName: body.customerName ? String(body.customerName).slice(0, 120) : null, contactEmail: body.contactEmail ? String(body.contactEmail).slice(0, 200) : null, expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000) } });
+  // The browser keeps this key across retries/reloads. accessToken is unique in the DB,
+  // so only the request that creates the row is allowed to create a provider bot.
+  const suppliedToken = String(body.accessToken || "");
+  if (suppliedToken && !/^[A-Za-z0-9_-]{32,64}$/.test(suppliedToken)) {
+    return NextResponse.json({ error: "Invalid request token" }, { status: 400 });
+  }
+  const accessToken = suppliedToken || crypto.randomBytes(32).toString("base64url");
+  const existing = await prisma.testCall.findUnique({ where: { accessToken } });
+  if (existing) {
+    if (existing.expiresAt < new Date()) return NextResponse.json({ error: "This test link has expired. Start a new test." }, { status: 410 });
+    return NextResponse.json({ token: accessToken, status: existing.status, botId: existing.recallBotId, report: existing.report ? JSON.parse(existing.report) : null, error: existing.error, reportUrl: `/test-call?token=${accessToken}`, resumed: true });
+  }
+  let testCall;
+  try {
+    testCall = await prisma.testCall.create({ data: { accessToken, zoomUrl: meetingUrl, customerName: body.customerName ? String(body.customerName).slice(0, 120) : null, contactEmail: body.contactEmail ? String(body.contactEmail).slice(0, 200) : null, expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000) } });
+  } catch (error) {
+    // Another retry may have inserted the same idempotency token milliseconds earlier.
+    if ((error as any)?.code === "P2002") {
+      const duplicate = await prisma.testCall.findUnique({ where: { accessToken } });
+      if (duplicate) return NextResponse.json({ token: accessToken, status: duplicate.status, botId: duplicate.recallBotId, report: duplicate.report ? JSON.parse(duplicate.report) : null, error: duplicate.error, reportUrl: `/test-call?token=${accessToken}`, resumed: true });
+    }
+    throw error;
+  }
   try {
     const bot = await startSkribbyBot(meetingUrl, webhookUrl(request));
     await prisma.testCall.update({ where: { id: testCall.id }, data: { recallBotId: bot.id, status: "waiting" } });
