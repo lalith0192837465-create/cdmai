@@ -50,3 +50,12 @@ h2 { font-size: 1.15rem; margin-bottom: 6px; }
   background: rgba(232, 103, 79, 0.1); border: 1px solid #E8674F;
   color: #E8674F; border-radius: 10px; padding: 12px 14px; font-size: 0.85rem; margin-bottom: 14px;
 }
+
+.choice-grid { display:grid; gap:12px; }
+.choice { display:flex; flex-direction:column; text-align:left; gap:4px; width:100%; padding:16px; color:var(--text); background:var(--panel-2); border:1px solid var(--border); border-radius:10px; cursor:pointer; font:inherit; }
+.choice:hover { border-color:var(--accent); } .choice span,.note { color:var(--muted); font-size:.84rem; }
+.note { background:var(--panel); border:1px solid var(--border); padding:12px; border-radius:9px; margin:12px 0; }
+select { width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px 12px; font:inherit; }
+.summary { white-space:pre-wrap; overflow:auto; max-height:260px; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; color:var(--muted); font-size:.8rem; }
+.text-btn { margin-top:14px; border:0; background:none; color:var(--muted); text-decoration:underline; cursor:pointer; }
+.wrap { max-width:760px; } body { overflow-y:auto; }
