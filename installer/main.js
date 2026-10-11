@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
 const path = require("path");
 const crypto = require("crypto");
 const dockerSetup = require("./docker-setup");
@@ -7,7 +7,24 @@ let win;
 function createWindow() { win = new BrowserWindow({ width: 680, height: 780, resizable: false, webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false } }); win.setMenuBarVisibility(false); win.loadFile(path.join(__dirname, "renderer", "index.html")); }
 app.whenReady().then(createWindow); app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 function send(status) { win?.webContents.send("status", status); }
-ipcMain.handle("open-cloud-package", async (_event, target) => { const file = target === "aws" ? "CDM-AWS-Setup.zip" : "CDM-Google-Cloud-Setup.zip"; await shell.openExternal(`${RELEASES}/${file}`); return { ok: true }; });
+ipcMain.handle("open-cloud-package", async (_event, target) => {
+  if (target !== "aws" && target !== "gcp") return { ok: false, error: "Unknown cloud package." };
+  const file = target === "aws" ? "CDM-AWS-Setup.zip" : "CDM-Google-Cloud-Setup.zip";
+  try { await shell.openExternal(`${RELEASES}/${file}`); return { ok: true }; }
+  catch (e) { return { ok: false, error: String(e?.message || e) }; }
+});
+ipcMain.handle("save-gcp-plan", async (_event, input) => {
+  const allowed = new Set(["unknown", "existing", "vpc-only", "new"]);
+  const auth = new Set(["customer-admin", "customer-platform", "unknown"]);
+  const audit = new Set(["cloud-logging", "existing", "unknown"]);
+  if (!input || typeof input !== "object" || !/^[a-z0-9][a-z0-9-]{3,61}[a-z0-9]$/.test(String(input.project_id || ""))) return { ok: false, error: "Enter a valid Google Cloud project ID before saving." };
+  if (!/^[a-z0-9-]+$/.test(String(input.region || "")) || !allowed.has(input.network_setup) || !auth.has(input.deployment_authorization) || !audit.has(input.audit_log_destination)) return { ok: false, error: "Some setup answers are invalid. Return to the wizard and review them." };
+  const result = await dialog.showSaveDialog(win, { title: "Save CDM Google Cloud setup summary", defaultPath: `CDM-GCP-Setup-${input.project_id}.json`, filters: [{ name: "JSON setup summary", extensions: ["json"] }] });
+  if (result.canceled || !result.filePath) return { ok: false, cancelled: true };
+  const safe = { product: "CDM Google Cloud setup handoff", generated_at: new Date().toISOString(), project_id: String(input.project_id), region: String(input.region), network_setup: input.network_setup, preferred_domain: String(input.preferred_domain || "Not provided").slice(0, 253), deployment_authorization: input.deployment_authorization, audit_log_destination: input.audit_log_destination, contains_credentials: false, next_step: "Customer cloud/platform team must review the included README and approve architecture, cost, network, OAuth, IAM and secrets before any Terraform apply." };
+  try { require("fs").writeFileSync(result.filePath, JSON.stringify(safe, null, 2), { encoding: "utf8", mode: 0o600 }); return { ok: true, path: result.filePath }; }
+  catch (e) { return { ok: false, error: String(e?.message || e) }; }
+});
 ipcMain.handle("check-docker", async () => { const installed = await dockerSetup.checkDockerInstalled(); return { installed, running: installed ? await dockerSetup.checkDockerRunning() : false }; });
 ipcMain.handle("install-and-launch", async (_event, config) => {
   try {
