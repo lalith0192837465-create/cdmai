@@ -1,16 +1,20 @@
-variable "webhook_secret" { type = string sensitive = true default = "" }
-
-
-variable "project_id" { type = string description = "GCP project ID where resources will be created" }
-variable "region" { type = string description = "GCP region for resources" default = "us-central1" }
-variable "service_name" { type = string description = "Base name for services and secrets" default = "cdm" }
-variable "container_image" { type = string description = "Container image to deploy (e.g., us-central1-docker.pkg.dev/project/cdm/app:latest)" }
-variable "app_url" { type = string description = "Public URL of the deployed app (e.g., https://cdm.example.com)" }
-variable "database_url" { type = string description = "PostgreSQL connection string" sensitive = true }
-variable "nextauth_secret" { type = string description = "NextAuth secret for session encryption" sensitive = true }
-variable "google_client_id" { type = string description = "Google OAuth client ID" sensitive = true }
-variable "google_client_secret" { type = string description = "Google OAuth client secret" sensitive = true }
-variable "gemini_api_key" { type = string description = "Google Gemini API key" sensitive = true }
-variable "anthropic_api_key" { type = string description = "Anthropic API key" sensitive = true }
-variable "skribby_api_key" { type = string description = "Skribby API key for meeting bot" sensitive = true }
-variable "webhook_secret" { type = string description = "Secret for webhook verification" sensitive = true }
+variable "project_id" { type = string description = "Customer-owned Google Cloud project ID" }
+variable "region" { type = string description = "Customer-approved Google Cloud region" default = "us-central1" }
+variable "service_name" { type = string description = "Cloud Run service and resource name prefix" default = "cdm" }
+variable "container_image" { type = string description = "Approved CDM container image" default = "ghcr.io/lalith0192837465-create/cdmai:latest" }
+variable "app_url" { type = string description = "Final app URL; first apply may use the Cloud Run URL output, then apply again with it" default = "" }
+variable "database_version" { type = string description = "Customer-approved Cloud SQL PostgreSQL version" default = "POSTGRES_16" }
+variable "database_tier" { type = string description = "Customer-approved Cloud SQL machine tier" }
+variable "database_availability" { type = string description = "ZONAL or REGIONAL after cost/reliability review" default = "ZONAL" validation { condition = contains(["ZONAL", "REGIONAL"], var.database_availability) error_message = "Use ZONAL or REGIONAL." } }
+variable "database_disk_gb" { type = number description = "Initial Cloud SQL SSD disk size in GB" default = 10 }
+variable "max_instances" { type = number description = "Maximum Cloud Run instances" default = 3 }
+variable "deletion_protection" { type = bool description = "Protect production service/database from accidental deletion" default = true }
+variable "allow_public_ingress" { type = bool description = "Allow traffic from the internet to reach Cloud Run (IAM authorization is separate)" default = true }
+variable "allow_unauthenticated" { type = bool description = "Allow unauthenticated requests at Cloud Run layer; customer must separately review app route access" default = true }
+variable "nextauth_secret" { type = string sensitive = true description = "Customer-generated NextAuth session secret" }
+variable "google_client_id" { type = string sensitive = true description = "Google OAuth client ID" }
+variable "google_client_secret" { type = string sensitive = true description = "Google OAuth client secret" }
+variable "gemini_api_key" { type = string sensitive = true description = "Gemini API key" }
+variable "anthropic_api_key" { type = string sensitive = true description = "Anthropic API key (may be empty if unused)" default = "" }
+variable "skribby_api_key" { type = string sensitive = true description = "Skribby API key (may be empty if unused)" default = "" }
+variable "webhook_secret" { type = string sensitive = true description = "Webhook verification secret" }
