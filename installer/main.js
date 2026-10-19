@@ -9,7 +9,7 @@ app.whenReady().then(createWindow); app.on("window-all-closed", () => { if (proc
 function send(status) { win?.webContents.send("status", status); }
 ipcMain.handle("open-cloud-package", async (_event, target) => {
   if (target !== "aws" && target !== "gcp") return { ok: false, error: "Unknown cloud package." };
-  const file = target === "aws" ? "CDM-AWS-Setup.zip" : "CDM-Google-Cloud-Setup.zip";
+  const file = target === "aws" ? "CDM-AWS-Setup.zip" : "CDM-GCP-Setup.exe";
   try { await shell.openExternal(`${RELEASES}/${file}`); return { ok: true }; }
   catch (e) { return { ok: false, error: String(e?.message || e) }; }
 });
