@@ -39,11 +39,17 @@ jobs:
           cd /tmp/cdm-packages
           zip -qr "$GITHUB_WORKSPACE/CDM-AWS-Setup.zip" aws VERSION.txt
           zip -qr "$GITHUB_WORKSPACE/CDM-Google-Cloud-Setup.zip" gcp VERSION.txt
+      - name: Build the GCP setup executable
+        run: |
+          npm install -g @yao-pkg/pkg@6.23.0
+          cd infra/gcp
+          pkg --target node22-win-x64 --output "$GITHUB_WORKSPACE/CDM-GCP-Setup.exe" --public-packages '*' gcp-cli.js
       - name: Upload cloud packages
         uses: softprops/action-gh-release@v2
         with:
           files: |
             CDM-AWS-Setup.zip
             CDM-Google-Cloud-Setup.zip
+            CDM-GCP-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
