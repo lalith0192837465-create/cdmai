@@ -14,6 +14,7 @@ let buffer = '';
 const lineQueue = [];
 const pending = [];
 let stdinDone = false;
+let hideInput = false;
 
 function pushLine(line) {
   const waiter = pending.shift();
@@ -25,14 +26,14 @@ let lastWasCR = false;
 function onData(chunk) {
   const text = chunk.toString('utf8');
   for (const ch of text) {
-    if (ch === '\r') { pushLine(buffer); buffer = ''; lastWasCR = true; continue; }
-    if (ch === '\n') { if (lastWasCR) { lastWasCR = false; continue; } pushLine(buffer); buffer = ''; continue; }
+    if (ch === '\r') { pushLine(buffer); buffer = ''; lastWasCR = true; if (stdin.isTTY) stdout.write('\n'); continue; }
+    if (ch === '\n') { if (lastWasCR) { lastWasCR = false; continue; } pushLine(buffer); buffer = ''; if (stdin.isTTY) stdout.write('\n'); continue; }
     lastWasCR = false;
     if (ch === '\u0003') { while (pending.length) pending.shift().reject(new Error('Cancelled by the user.')); pushLine(null); }
-    else if (ch === '\u007f' || ch === '\b') { buffer = buffer.slice(0, -1); stdout.write('\b \b'); }
+    else if (ch === '\u007f' || ch === '\b') { buffer = buffer.slice(0, -1); if (stdin.isTTY && !hideInput) stdout.write('\b \b'); }
     else if (ch === '\u001b') continue;
     else if (ch < ' ') continue;
-    else { buffer += ch; stdout.write(ch); }
+    else { buffer += ch; if (stdin.isTTY && !hideInput) stdout.write(ch); }
   }
 }
 
@@ -77,7 +78,14 @@ async function ask(label, fallback = '') {
 }
 
 async function askSecret(label, optional = false) {
-  const value = await readLine(`${label}${optional ? ' (leave blank if unused)' : ''}: `);
+  const previous = hideInput;
+  hideInput = true;
+  let value;
+  try {
+    value = await readLine(`${label}${optional ? ' (leave blank if unused)' : ''}: `);
+  } finally {
+    hideInput = previous;
+  }
   if (!value && !optional) throw new Error(`${label} is required.`);
   return value;
 }
@@ -259,4 +267,15 @@ async function main() {
     process.exitCode = 1;
   }
 }
-main().catch(e => { console.error(`\nSetup stopped: ${e.message}`); process.exitCode = 1; });
+if (process.argv.includes('--self-test')) {
+  const required = ['main.tf', 'variables.tf', 'outputs.tf', 'versions.tf', '.gitignore'];
+  const missing = required.filter((name) => !embedded[name] && !fs.existsSync(path.join(__dirname, name)));
+  if (missing.length) {
+    console.error(`Bundle self-test failed: missing ${missing.join(', ')}`);
+    process.exitCode = 2;
+  } else {
+    console.log(`Bundle self-test passed: CLI and ${required.length} Terraform support files are present.`);
+  }
+} else {
+  main().catch(e => { console.error(`\nSetup stopped: ${e.message}`); process.exitCode = 1; });
+}

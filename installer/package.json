@@ -1,6 +1,6 @@
 {
   "name": "cdm-installer",
-  "version": "1.1.0",
+  "version": "1.2.2",
   "private": true,
   "description": "CDM current-version setup for Windows and macOS, with AWS and Google Cloud deployment guides.",
   "main": "main.js",

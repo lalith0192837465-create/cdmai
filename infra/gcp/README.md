@@ -40,45 +40,27 @@ Terraform state contains sensitive deployment data. Store it only in a customer-
 
 Only the customer’s authorized cloud administrator should run `terraform destroy`, after checking the plan and confirming retention/backup requirements. Deletion can remove customer data and infrastructure.
 
-# Using the CDM GCP CLI
+# Using the CDM GCP downloads
 
-The customer download is a single Windows executable. The customer downloads it, double-clicks it,
-and a terminal opens with the guided setup. There is nothing to extract and no Node.js to install.
+The current GitHub release includes two customer-facing GCP downloads:
 
-## For the customer
+- `CDM-GCP-Setup.exe`: guided Windows CLI with Terraform files embedded; no unzip or Node.js install is needed.
+- `CDM-Google-Cloud-Setup.zip`: Terraform starter package and customer review guide for teams that want to inspect or adapt the files themselves.
 
-1. Download `CDM-Google-Cloud-Setup.zip` from the GitHub release and extract it once.
-2. Double-click `CDM-GCP-Setup.exe`. A terminal window opens.
-3. Answer the prompts. The CLI checks for Terraform and Google Cloud CLI first and stops if either is missing.
-4. The CLI prints a deployment summary and writes a local `cdm-gcp-<project-id>` folder.
-5. The CLI runs `terraform init` and `terraform plan` and shows the plan.
-6. Only if the customer types `APPLY <project-id>` does it run `terraform apply`.
+The desktop installer’s Google Cloud wizard saves a non-secret setup handoff, then opens the direct CLI download. It does not log into or change a customer cloud project.
 
-The executable embeds the Terraform source, so it is self-contained apart from Terraform and gcloud.
+## For the CLI customer
+
+1. Install Terraform and Google Cloud CLI using your organization’s approved process.
+2. Download and double-click `CDM-GCP-Setup.exe`. A terminal opens.
+3. Review the questions. The CLI stops if required tools are missing or if your approved network design does not match this package.
+4. Enter application credentials at the prompts; secret input is not shown on screen. Values are written to the local `terraform.tfvars`, which must stay private.
+5. Type `PLAN` to prepare the local folder and run `terraform init` and `terraform plan`.
+6. Review the full plan and costs. Only typing the exact `APPLY <project-id>` confirmation applies that plan.
+
+The CLI and Terraform are customer-operated. Terraform state and `terraform.tfvars` can contain sensitive information; keep them in an access-controlled location, and do not commit or email them.
 
 ## For the developer
 
-- `gcp-cli.js` is the CLI source.
-- `gcp-assets.js` embeds the Terraform files so the packaged executable can write them out.
-- `gcp-assets.js` is generated from the Terraform files in this folder. Regenerate it after changing them:
-
-  ```
-  node -e "const fs=require('fs');const n=['main.tf','variables.tf','outputs.tf','versions.tf','.gitignore'];const a={};for(const f of n)a[f]=fs.readFileSync(f,'utf8');fs.writeFileSync('gcp-assets.js',"'use strict';\nmodule.exports = "+JSON.stringify(a,null,2)+';\n')"
-  ```
-
-- Build the Windows executable with `pkg` (the `@yao-pkg/pkg` fork supports Node 22):
-
-  ```
-  npm install -g @yao-pkg/pkg
-  pkg --target node22-win-x64 --output dist/CMD-GCP-Setup.exe --public-packages '*' gcp-cli.js
-  ```
-
-## Safety properties
-
-- The CLI never runs `terraform apply` without the customer typing `APPLY <project-id>`.
-- `terraform plan` always runs first, and the plan is shown before the apply.
-- Credentials are read without echo and written only to the local `terraform.tfvars` file. They are
-  never transmitted to CDM.
-- The CLI refuses to continue when the customer's network design does not match the included
-  Terraform, rather than applying an assumption.
-- The generated folder is never overwritten; the CLI stops if it already exists.
+- `gcp-cli.js` is the CLI source; `gcp-assets.js` embeds the Terraform files.
+- The tagged-release workflow checks embedded assets, builds the standalone Windows executable, runs its bundle self-test, and attaches it to each new GitHub release.
