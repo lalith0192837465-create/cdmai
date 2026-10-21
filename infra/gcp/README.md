@@ -44,7 +44,7 @@ Only the customer’s authorized cloud administrator should run `terraform destr
 
 The current GitHub release includes two customer-facing GCP downloads:
 
-- `CDM-GCP-Setup.exe`: guided Windows CLI with Terraform files embedded; no unzip or Node.js install is needed.
+- `CDM-GCP-Setup.exe`: guided Windows CLI with Terraform files embedded; no unzip or Node.js install is needed. It shows progress steps and leaves startup errors visible in its console window.
 - `CDM-Google-Cloud-Setup.zip`: Terraform starter package and customer review guide for teams that want to inspect or adapt the files themselves.
 
 The desktop installer’s Google Cloud wizard saves a non-secret setup handoff, then opens the direct CLI download. It does not log into or change a customer cloud project.
