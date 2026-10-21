@@ -45,6 +45,7 @@ jobs:
           cd infra/gcp
           node gcp-cli.js --self-test
           pkg --target node22-win-x64 --output "$GITHUB_WORKSPACE/CDM-GCP-Setup.exe" --public-packages '*' gcp-cli.js
+          test -s "$GITHUB_WORKSPACE/CDM-GCP-Setup.exe"
       - name: Upload cloud packages
         uses: softprops/action-gh-release@v2
         with:
