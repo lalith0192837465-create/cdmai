@@ -58,6 +58,32 @@ The desktop installer’s Google Cloud wizard saves a non-secret setup handoff, 
 5. Type `PLAN` to prepare the local folder and run `terraform init` and `terraform plan`.
 6. Review the full plan and costs. Only typing the exact `APPLY <project-id>` confirmation applies that plan.
 
+### Installing the required tools
+
+The CLI prints these instructions automatically when it detects a missing tool. They are also listed here.
+
+**Terraform** creates and updates the Google Cloud resources for this setup. It is free and open source.
+
+| Method | What to do |
+| --- | --- |
+| Direct download (Windows 64-bit) | Download `https://releases.hashicorp.com/terraform/<version>/terraform_<version>_windows_amd64.zip`, unzip it, and put `terraform.exe` in a folder on your PATH, for example `C:\Program Files\Terraform`. |
+| Official install guide | `https://developer.hashicorp.com/terraform/install` |
+| Windows Package Manager | Run `winget install Hashicorp.Terraform` |
+| Check it worked | `terraform -version` |
+
+The direct link is version-specific. The CLI looks up the current version when it starts and prints the matching link, so it does not go stale.
+
+**Google Cloud CLI (`gcloud`)** signs in to your Google Cloud project and runs the deployment commands.
+
+| Method | What to do |
+| --- | --- |
+| Direct installer (Windows 64-bit) | Download and run `https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe` |
+| Official install guide | `https://cloud.google.com/sdk/docs/install` |
+| Windows Package Manager | Run `winget install Google.CloudSDK` |
+| Check it worked | `gcloud --version` |
+
+After installing either tool, open a NEW terminal window so it can find the new command.
+
 The CLI and Terraform are customer-operated. Terraform state and `terraform.tfvars` can contain sensitive information; keep them in an access-controlled location, and do not commit or email them.
 
 ## For the developer

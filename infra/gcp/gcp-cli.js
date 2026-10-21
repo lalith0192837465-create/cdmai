@@ -118,20 +118,92 @@ function hasCommand(command) {
   return probe.status === 0 && !!probe.stdout.trim();
 }
 
-function checkPrerequisites() {
+const https = require('node:https');
+
+const TERRAFORM_FALLBACK_VERSION = '1.17.0';
+
+function fetchJson(url, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+    let request;
+    try {
+      request = https.get(url, { headers: { 'User-Agent': 'CDM-GCP-Setup' } }, (response) => {
+        if (response.statusCode !== 200) { response.resume(); finish(null); return; }
+        let body = '';
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => {
+          try { finish(JSON.parse(body)); } catch (_) { finish(null); }
+        });
+        response.on('error', () => finish(null));
+      });
+    } catch (_) { finish(null); return; }
+    request.setTimeout(timeoutMs, () => { try { request.destroy(); } catch (_) {} finish(null); });
+    request.on('error', () => finish(null));
+  });
+}
+
+// Resolve the current Terraform release so the direct download link does not go stale.
+async function latestTerraformWindowsLink() {
+  const releases = await fetchJson('https://api.releases.hashicorp.com/v1/releases/terraform/latest', 8000);
+  const builds = releases && Array.isArray(releases.builds) ? releases.builds : [];
+  const match = builds.find((b) => b && b.os === 'windows' && b.arch === 'amd64' && b.url);
+  if (match) return { version: releases.version || 'latest', url: match.url };
+  const checkpoint = await fetchJson('https://checkpoint-api.hashicorp.com/v1/check/terraform', 8000);
+  const version = checkpoint && checkpoint.current_version ? checkpoint.current_version : TERRAFORM_FALLBACK_VERSION;
+  return { version, url: 'https://releases.hashicorp.com/terraform/' + version + '/terraform_' + version + '_windows_amd64.zip' };
+}
+
+function printTerraformInstructions(download) {
+  console.log('\n  1. Direct download (Windows 64-bit):');
+  console.log('     ' + download.url);
+  console.log('     Unzip it, then put terraform.exe in a folder on your PATH, for example C:\\Program Files\\Terraform.');
+  console.log('\n  2. Official install guide (all platforms, step by step):');
+  console.log('     https://developer.hashicorp.com/terraform/install');
+  console.log('\n  3. Windows Package Manager (installs the latest version for you):');
+  console.log('     winget install Hashicorp.Terraform');
+  console.log('     Then open a NEW terminal window so it can find terraform.');
+  console.log('\n  Check it worked: terraform -version');
+}
+
+function printGoogleCloudCliInstructions() {
+  console.log('\n  1. Direct installer (Windows 64-bit):');
+  console.log('     https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe');
+  console.log('\n  2. Official install guide (all platforms, step by step):');
+  console.log('     https://cloud.google.com/sdk/docs/install');
+  console.log('\n  3. Windows Package Manager (installs the latest version for you):');
+  console.log('     winget install Google.CloudSDK');
+  console.log('     Then open a NEW terminal window so it can find gcloud.');
+  console.log('\n  Check it worked: gcloud --version');
+}
+
+async function checkPrerequisites() {
   showProgress(1, 5, 'Checking required tools');
-  const missing = [];
-  if (!hasCommand('terraform')) missing.push('Terraform (https://developer.hashicorp.com/terraform/downloads)');
-  if (!hasCommand('gcloud')) missing.push('Google Cloud CLI (https://cloud.google.com/sdk/docs/install)');
-  if (missing.length) {
-    console.log('\nMissing required tools:');
-    for (const item of missing) console.log(`  - ${item}`);
-    console.log('\nInstall them, then run this setup again. Nothing was changed.');
-    const error = new Error('Required tools are not installed.');
-    error.keepOpen = true;
-    throw error;
+  const missingTerraform = !hasCommand('terraform');
+  const missingGcloud = !hasCommand('gcloud');
+  if (!missingTerraform && !missingGcloud) {
+    console.log('Prerequisites found: Terraform and Google Cloud CLI.');
+    return;
   }
-  console.log('Prerequisites found: Terraform and Google Cloud CLI.');
+  console.log('\nMissing required tools. Here is how to install each one.');
+  if (missingTerraform) {
+    console.log('\n--- Terraform ---');
+    console.log('Terraform is the tool that creates and updates the Google Cloud resources for this setup.');
+    console.log('It is free and open source. Install it once on this computer.');
+    const download = await latestTerraformWindowsLink();
+    console.log('     Current version: ' + download.version);
+    printTerraformInstructions(download);
+  }
+  if (missingGcloud) {
+    console.log('\n--- Google Cloud CLI (gcloud) ---');
+    console.log('gcloud signs in to your Google Cloud project and runs the deployment commands.');
+    printGoogleCloudCliInstructions();
+  }
+  console.log('\nNothing was changed. No cloud resources were created and no plan was run.');
+  console.log('Install the tools above, open a NEW terminal window, then run this setup again.');
+  const error = new Error('Required tools are not installed.');
+  error.keepOpen = true;
+  throw error;
 }
 
 async function main() {
@@ -140,7 +212,7 @@ async function main() {
   console.log('This runs in your Google Cloud project. Review each answer and the Terraform plan.');
   console.log('The package only supports its documented Cloud Run + NEW Cloud SQL design.');
   console.log('No resources are created until you explicitly type APPLY and your project ID.');
-  checkPrerequisites();
+  await checkPrerequisites();
   showProgress(2, 5, 'Collecting project and deployment settings');
 
   const project = await ask('Google Cloud project ID');
