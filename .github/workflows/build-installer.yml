@@ -2,6 +2,7 @@ name: Build CDM installers and cloud packages
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
