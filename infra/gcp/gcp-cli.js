@@ -96,6 +96,12 @@ function run(command, args, cwd, extra = {}) {
   if (result.status !== 0) throw new Error(`${command} stopped (exit ${result.status}). No further action was taken.`);
 }
 
+function showProgress(step, total, label) {
+  const width = 20;
+  const filled = Math.round((step / total) * width);
+  console.log(`\n[${'#'.repeat(filled)}${'.'.repeat(width - filled)}] ${Math.round((step / total) * 100)}% — ${label}`);
+}
+
 function tfString(value) { return JSON.stringify(value); }
 
 function stopIfUnsupported(value) {
@@ -113,6 +119,7 @@ function hasCommand(command) {
 }
 
 function checkPrerequisites() {
+  showProgress(1, 5, 'Checking required tools');
   const missing = [];
   if (!hasCommand('terraform')) missing.push('Terraform (https://developer.hashicorp.com/terraform/downloads)');
   if (!hasCommand('gcloud')) missing.push('Google Cloud CLI (https://cloud.google.com/sdk/docs/install)');
@@ -120,17 +127,21 @@ function checkPrerequisites() {
     console.log('\nMissing required tools:');
     for (const item of missing) console.log(`  - ${item}`);
     console.log('\nInstall them, then run this setup again. Nothing was changed.');
-    throw new Error('Required tools are not installed.');
+    const error = new Error('Required tools are not installed.');
+    error.keepOpen = true;
+    throw error;
   }
   console.log('Prerequisites found: Terraform and Google Cloud CLI.');
 }
 
 async function main() {
   console.log('\nCDM — Google Cloud setup');
+  console.log('Starting the GCP setup check. This window will stay open if anything needs your attention.');
   console.log('This runs in your Google Cloud project. Review each answer and the Terraform plan.');
   console.log('The package only supports its documented Cloud Run + NEW Cloud SQL design.');
   console.log('No resources are created until you explicitly type APPLY and your project ID.');
   checkPrerequisites();
+  showProgress(2, 5, 'Collecting project and deployment settings');
 
   const project = await ask('Google Cloud project ID');
   if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project)) {
@@ -240,10 +251,11 @@ async function main() {
     fs.writeFileSync(path.join(outputDir,'README-CUSTOMER.md'), readmeLines.join('\n'), { mode: 0o600, flag: 'wx' });
   } catch (e) { fs.rmSync(outputDir, {recursive:true, force:true}); throw e; }
 
-  console.log(`\nFiles prepared in: ${outputDir}`);
+  showProgress(3, 5, `Setup files prepared in: ${outputDir}`);
   console.log('Terraform will now initialize and show a plan. It will NOT apply changes.');
 
   try {
+    showProgress(4, 5, 'Initializing Terraform and creating a review plan');
     run('terraform', ['init','-input=false'], outputDir);
     run('terraform', ['plan','-input=false','-out=cdm.tfplan'], outputDir);
   } catch (e) {
@@ -253,6 +265,7 @@ async function main() {
     return;
   }
 
+  showProgress(5, 5, 'Plan is ready for your review — nothing has been applied');
   const approval = await ask(`Type APPLY ${project} to apply exactly the plan you just reviewed`);
   if (approval !== `APPLY ${project}`) {
     console.log('\nNot applied. Your saved plan and setup files remain available for later review.');
@@ -277,5 +290,12 @@ if (process.argv.includes('--self-test')) {
     console.log(`Bundle self-test passed: CLI and ${required.length} Terraform support files are present.`);
   }
 } else {
-  main().catch(e => { console.error(`\nSetup stopped: ${e.message}`); process.exitCode = 1; });
+  main().catch((e) => {
+    console.error(`\nSetup stopped: ${e.message}`);
+    process.exitCode = 1;
+    if (process.platform === 'win32' && !process.env.CI && process.env.CDM_GCP_NO_PAUSE !== '1') {
+      console.error('\nPress any key to close this window.');
+      spawnSync('cmd.exe', ['/c', 'pause'], { stdio: 'inherit', windowsHide: false });
+    }
+  });
 }
