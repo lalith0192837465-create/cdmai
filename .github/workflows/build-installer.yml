@@ -7,6 +7,7 @@ permissions:
   contents: write
 jobs:
   desktop:
+    if: github.event_name == 'push'
     strategy:
       matrix:
         os: [windows-latest, macos-latest]
@@ -28,6 +29,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   cloud-packages:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,3 +58,27 @@ jobs:
             CDM-GCP-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  gcp-windows-cli:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and self-test the GCP-only Windows CLI
+        shell: pwsh
+        run: |
+          npm install -g @yao-pkg/pkg@6.23.0
+          Set-Location infra/gcp
+          node gcp-cli.js --self-test
+          pkg --target node22-win-x64 --output "$env:GITHUB_WORKSPACE/CDM-GCP-Setup.exe" --public-packages '*' gcp-cli.js
+          if (!(Test-Path "$env:GITHUB_WORKSPACE/CDM-GCP-Setup.exe") -or (Get-Item "$env:GITHUB_WORKSPACE/CDM-GCP-Setup.exe").Length -eq 0) { throw 'GCP CLI executable was not produced.' }
+      - name: Upload GCP-only executable as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDM-GCP-Setup-Windows
+          path: CDM-GCP-Setup.exe
+          if-no-files-found: error
+          retention-days: 7
