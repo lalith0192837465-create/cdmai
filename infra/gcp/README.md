@@ -44,7 +44,7 @@ Only the customer’s authorized cloud administrator should run `terraform destr
 
 The current GitHub release includes two customer-facing GCP downloads:
 
-- `CDM-GCP-Setup.exe`: guided Windows CLI with Terraform files embedded; no unzip or Node.js install is needed. It shows progress steps and leaves startup errors visible in its console window.
+- `CDM-GCP-Setup.exe`: guided Windows setup window with the Terraform files embedded; no unzip or Node.js install is needed. Progress, questions, secret fields, review-plan output, and the final project-specific approval are shown in the window, not a console.
 - `CDM-Google-Cloud-Setup.zip`: Terraform starter package and customer review guide for teams that want to inspect or adapt the files themselves.
 
 The desktop installer’s Google Cloud wizard saves a non-secret setup handoff, then opens the direct CLI download. It does not log into or change a customer cloud project.
@@ -52,11 +52,11 @@ The desktop installer’s Google Cloud wizard saves a non-secret setup handoff, 
 ## For the CLI customer
 
 1. Install Terraform and Google Cloud CLI using your organization’s approved process.
-2. Download and double-click `CDM-GCP-Setup.exe`. A terminal opens.
-3. Review the questions. The CLI stops if required tools are missing or if your approved network design does not match this package.
-4. Enter application credentials at the prompts; secret input is not shown on screen. Values are written to the local `terraform.tfvars`, which must stay private.
-5. Type `PLAN` to prepare the local folder and run `terraform init` and `terraform plan`.
-6. Review the full plan and costs. Only typing the exact `APPLY <project-id>` confirmation applies that plan.
+2. Download and double-click `CDM-GCP-Setup.exe`. The graphical setup window opens; no Python or Node.js window is needed.
+3. Choose a local folder and start setup. Review each question in the window. The setup stops if required tools are missing or if the approved network design does not match this package.
+4. Enter application credentials in the private input fields. Values are written only to the local `terraform.tfvars`, which must stay private.
+5. Review the deployment summary and choose **Prepare review plan** to create local files and run `terraform init` and `terraform plan`.
+6. Review the full plan and costs in the window. Only entering the exact `APPLY <project-id>` confirmation applies that plan. Keep the window open until Terraform finishes.
 
 ### Installing the required tools
 
@@ -88,5 +88,5 @@ The CLI and Terraform are customer-operated. Terraform state and `terraform.tfva
 
 ## For the developer
 
-- `gcp-cli.js` is the CLI source; `gcp-assets.js` embeds the Terraform files.
-- The tagged-release workflow checks embedded assets, builds the standalone Windows executable, runs its bundle self-test, and attaches it to each new GitHub release.
+- `gcp-cli.js` is the deployment engine; `gcp-assets.js` embeds the Terraform files; `gui/` contains the Windows setup window.
+- The release workflow checks the embedded Terraform assets, builds the hidden CLI and Windows setup window, and attaches the GCP-only executable to new tagged releases. Manual runs produce a short-lived test artifact without changing a release.

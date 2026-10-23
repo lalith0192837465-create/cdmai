@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { stdin, stdout } = require('node:process');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 let embedded = {};
 try { embedded = require('./gcp-assets.js'); } catch (_) { embedded = {}; }
@@ -91,9 +91,20 @@ async function askSecret(label, optional = false) {
 }
 
 function run(command, args, cwd, extra = {}) {
-  const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32', ...extra });
-  if (result.error) throw new Error(`${command} could not start: ${result.error.message}`);
-  if (result.status !== 0) throw new Error(`${command} stopped (exit ${result.status}). No further action was taken.`);
+  const guiMode = process.env.CDM_GCP_GUI === '1';
+  if (!guiMode) {
+    const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32', ...extra });
+    if (result.error) throw new Error(`${command} could not start: ${result.error.message}`);
+    if (result.status !== 0) throw new Error(`${command} stopped (exit ${result.status}). No further action was taken.`);
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, shell: process.platform === 'win32', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], ...extra });
+    child.stdout.on('data', (chunk) => stdout.write(chunk));
+    child.stderr.on('data', (chunk) => process.stderr.write(chunk));
+    child.on('error', (error) => reject(new Error(`${command} could not start: ${error.message}`)));
+    child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`${command} stopped (exit ${code}). No further action was taken.`)));
+  });
 }
 
 function showProgress(step, total, label) {
@@ -328,8 +339,8 @@ async function main() {
 
   try {
     showProgress(4, 5, 'Initializing Terraform and creating a review plan');
-    run('terraform', ['init','-input=false'], outputDir);
-    run('terraform', ['plan','-input=false','-out=cdm.tfplan'], outputDir);
+    await run('terraform', ['init','-input=false'], outputDir);
+    await run('terraform', ['plan','-input=false','-out=cdm.tfplan'], outputDir);
   } catch (e) {
     console.error(`\nPlan did not complete: ${e.message}`);
     console.error(`Your files remain in ${outputDir}. No apply was run.`);
@@ -344,7 +355,7 @@ async function main() {
     return;
   }
   try {
-    run('terraform', ['apply','-input=false','cdm.tfplan'], outputDir);
+    await run('terraform', ['apply','-input=false','cdm.tfplan'], outputDir);
     console.log('\nTerraform apply finished. Check the outputs above and verify the app health and sign-in.');
   } catch (e) {
     console.error(`\nApply did not complete: ${e.message}`);

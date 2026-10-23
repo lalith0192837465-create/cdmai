@@ -1,0 +1,46 @@
+{
+  "name": "cdm-gcp-setup-gui",
+  "version": "1.2.3",
+  "private": true,
+  "description": "CDM Google Cloud setup window for Windows",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "ai.cdm.gcp-setup",
+    "productName": "CDM Google Cloud Setup",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "gcp-cli.exe",
+        "to": "gcp-cli.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "CDM-GCP-Setup.${ext}"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "artifactName": "CDM-GCP-Setup.${ext}"
+  }
+}
