@@ -7,7 +7,6 @@ permissions:
   contents: write
 jobs:
   desktop:
-    if: github.event_name == 'push'
     strategy:
       matrix:
         os: [windows-latest, macos-latest]
@@ -29,7 +28,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   cloud-packages:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,19 +40,13 @@ jobs:
           cd /tmp/cdm-packages
           zip -qr "$GITHUB_WORKSPACE/CDM-AWS-Setup.zip" aws VERSION.txt
           zip -qr "$GITHUB_WORKSPACE/CDM-Google-Cloud-Setup.zip" gcp VERSION.txt
-      - name: Build the graphical GCP setup executable
-        shell: pwsh
+      - name: Build the GCP setup executable
         run: |
-          Set-Location infra/gcp
           npm install -g @yao-pkg/pkg@6.23.0
+          cd infra/gcp
           node gcp-cli.js --self-test
-          pkg --target node22-win-x64 --output gui/gcp-cli.exe --public-packages '*' gcp-cli.js
-          if (!(Test-Path "gui/gcp-cli.exe") -or (Get-Item "gui/gcp-cli.exe").Length -eq 0) { throw 'Hidden GCP setup engine was not produced.' }
-          Set-Location gui
-          npm ci
-          npm run dist:win
-          if (!(Test-Path "dist/CDM-GCP-Setup.exe") -or (Get-Item "dist/CDM-GCP-Setup.exe").Length -eq 0) { throw 'Graphical GCP setup executable was not produced.' }
-          Copy-Item "dist/CDM-GCP-Setup.exe" "$env:GITHUB_WORKSPACE/CDM-GCP-Setup.exe" -Force
+          pkg --target node22-win-x64 --output "$GITHUB_WORKSPACE/CDM-GCP-Setup.exe" --public-packages '*' gcp-cli.js
+          test -s "$GITHUB_WORKSPACE/CDM-GCP-Setup.exe"
       - name: Upload cloud packages
         uses: softprops/action-gh-release@v2
         with:
@@ -64,37 +56,3 @@ jobs:
             CDM-GCP-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  gcp-windows-cli:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Build hidden GCP CLI engine
-        shell: pwsh
-        run: |
-          npm install -g @yao-pkg/pkg@6.23.0
-          Set-Location infra/gcp
-          node gcp-cli.js --self-test
-          pkg --target node22-win-x64 --output gui/gcp-cli.exe --public-packages '*' gcp-cli.js
-          if (!(Test-Path "gui/gcp-cli.exe") -or (Get-Item "gui/gcp-cli.exe").Length -eq 0) { throw 'Hidden GCP CLI engine was not produced.' }
-      - name: Build graphical GCP setup window
-        working-directory: infra/gcp/gui
-        shell: pwsh
-        run: |
-          npm ci
-          npm run dist:win
-          if (!(Test-Path "dist/CDM-GCP-Setup.exe") -or (Get-Item "dist/CDM-GCP-Setup.exe").Length -eq 0) { throw 'Graphical GCP setup executable was not produced.' }
-      - name: Copy and upload the graphical GCP setup executable
-        shell: pwsh
-        run: Copy-Item "infra/gcp/gui/dist/CDM-GCP-Setup.exe" "$env:GITHUB_WORKSPACE/CDM-GCP-Setup.exe" -Force
-      - name: Upload GCP-only executable as a workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: CDM-GCP-Setup-Windows
-          path: CDM-GCP-Setup.exe
-          if-no-files-found: error
-          retention-days: 7

@@ -16,10 +16,23 @@ export default function SignIn() {
           Sign in to manage your deal pipeline
         </p>
         <button
+          onClick={async () => {
+            const { signIn } = await import("next-auth/react");
+            await signIn("credentials", { email: "demo@trycdm.com", callbackUrl: "/dashboard" });
+          }}
+          style={{
+            width: "100%", padding: "12px", background: "#111827", color: "white",
+            border: "none", borderRadius: "8px", fontWeight: 500, fontSize: "14px",
+            cursor: "pointer", marginBottom: "10px",
+          }}
+        >
+          Sign In as Demo Sales Rep
+        </button>
+        <button
           onClick={async () => { const { signIn } = await import("next-auth/react"); await signIn("google", { callbackUrl: "/dashboard" }); }}
           style={{
-            width: "100%", padding: "12px", background: "#3b82f6", color: "white",
-            border: "none", borderRadius: "8px", fontWeight: 500, fontSize: "14px",
+            width: "100%", padding: "12px", background: "#f3f4f6", color: "#374151",
+            border: "1px solid #d1d5db", borderRadius: "8px", fontWeight: 500, fontSize: "14px",
             cursor: "pointer",
           }}
         >

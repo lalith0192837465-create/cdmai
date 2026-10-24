@@ -12,5 +12,5 @@ export default function DownloadButtons() {
   const [detected, setDetected] = useState<string | null>(null);
   useEffect(() => { setDetected(detectOS()); }, []);
   return <div className="grid-4">{OPTIONS.map((opt) => <a key={opt.id} href={`${RELEASES_BASE}/${opt.file}`} className={`download-card${detected === opt.id ? " recommended" : ""}`}>
-    {detected === opt.id && <span className="tag">Recommended for you</span>}<h3>{opt.label}</h3><p>{opt.description}</p></a>)}</div>;
+    {detected === opt.id && <span className="tag">Recommended for you</span>}<h3>{opt.label}</h3></a>)}</div>;
 }

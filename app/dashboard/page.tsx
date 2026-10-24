@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 type Deal = {
   id: string;
@@ -18,6 +18,7 @@ type Deal = {
 };
 
 export default function Dashboard() {
+  const router = useRouter();
   const [session, setSession] = useState<any>(null);
   const [status, setStatus] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
   const [activeTab, setActiveTab] = useState<"awaiting" | "queue" | "custom">("awaiting");
@@ -28,9 +29,9 @@ export default function Dashboard() {
   useEffect(() => {
     fetch("/api/auth/session").then((r) => r.json()).then((data) => {
       if (data && data.user) { setSession(data); setStatus("authenticated"); }
-      else { setStatus("unauthenticated"); redirect("/auth/signin"); }
-    }).catch(() => { setStatus("unauthenticated"); redirect("/auth/signin"); });
-  }, []);
+      else { setStatus("unauthenticated"); router.replace("/auth/signin"); }
+    }).catch(() => { setStatus("unauthenticated"); router.replace("/auth/signin"); });
+  }, [router]);
 
   useEffect(() => {
     if (status === "authenticated") fetchDeals();

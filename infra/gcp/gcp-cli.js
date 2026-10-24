@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { stdin, stdout } = require('node:process');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 
 let embedded = {};
 try { embedded = require('./gcp-assets.js'); } catch (_) { embedded = {}; }
@@ -91,20 +91,9 @@ async function askSecret(label, optional = false) {
 }
 
 function run(command, args, cwd, extra = {}) {
-  const guiMode = process.env.CDM_GCP_GUI === '1';
-  if (!guiMode) {
-    const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32', ...extra });
-    if (result.error) throw new Error(`${command} could not start: ${result.error.message}`);
-    if (result.status !== 0) throw new Error(`${command} stopped (exit ${result.status}). No further action was taken.`);
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, shell: process.platform === 'win32', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], ...extra });
-    child.stdout.on('data', (chunk) => stdout.write(chunk));
-    child.stderr.on('data', (chunk) => process.stderr.write(chunk));
-    child.on('error', (error) => reject(new Error(`${command} could not start: ${error.message}`)));
-    child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`${command} stopped (exit ${code}). No further action was taken.`)));
-  });
+  const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32', ...extra });
+  if (result.error) throw new Error(`${command} could not start: ${result.error.message}`);
+  if (result.status !== 0) throw new Error(`${command} stopped (exit ${result.status}). No further action was taken.`);
 }
 
 function showProgress(step, total, label) {
@@ -129,92 +118,76 @@ function hasCommand(command) {
   return probe.status === 0 && !!probe.stdout.trim();
 }
 
-const https = require('node:https');
-
-const TERRAFORM_FALLBACK_VERSION = '1.17.0';
-
-function fetchJson(url, timeoutMs) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
-    let request;
-    try {
-      request = https.get(url, { headers: { 'User-Agent': 'CDM-GCP-Setup' } }, (response) => {
-        if (response.statusCode !== 200) { response.resume(); finish(null); return; }
-        let body = '';
-        response.on('data', (chunk) => { body += chunk; });
-        response.on('end', () => {
-          try { finish(JSON.parse(body)); } catch (_) { finish(null); }
-        });
-        response.on('error', () => finish(null));
-      });
-    } catch (_) { finish(null); return; }
-    request.setTimeout(timeoutMs, () => { try { request.destroy(); } catch (_) {} finish(null); });
-    request.on('error', () => finish(null));
+function installTerraformWindows(targetDir) {
+  fs.mkdirSync(targetDir, { recursive: true });
+  console.log('Downloading Terraform binary from HashiCorp...');
+  const psCmd = `
+    $ErrorActionPreference = 'Stop'
+    $url = 'https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_windows_amd64.zip'
+    $zip = Join-Path '${targetDir.replace(/'/g, "''")}' 'terraform.zip'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+    Expand-Archive -Path $zip -DestinationPath '${targetDir.replace(/'/g, "''")}' -Force
+    Remove-Item $zip -Force
+  `.replace(/\r?\n\s*/g, ' ');
+  const res = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCmd], {
+    stdio: 'inherit',
+    windowsHide: true,
   });
+  if (res.status !== 0) {
+    throw new Error('Could not download Terraform automatically. Please install it from https://developer.hashicorp.com/terraform/downloads');
+  }
 }
 
-// Resolve the current Terraform release so the direct download link does not go stale.
-async function latestTerraformWindowsLink() {
-  const releases = await fetchJson('https://api.releases.hashicorp.com/v1/releases/terraform/latest', 8000);
-  const builds = releases && Array.isArray(releases.builds) ? releases.builds : [];
-  const match = builds.find((b) => b && b.os === 'windows' && b.arch === 'amd64' && b.url);
-  if (match) return { version: releases.version || 'latest', url: match.url };
-  const checkpoint = await fetchJson('https://checkpoint-api.hashicorp.com/v1/check/terraform', 8000);
-  const version = checkpoint && checkpoint.current_version ? checkpoint.current_version : TERRAFORM_FALLBACK_VERSION;
-  return { version, url: 'https://releases.hashicorp.com/terraform/' + version + '/terraform_' + version + '_windows_amd64.zip' };
-}
-
-function printTerraformInstructions(download) {
-  console.log('\n  1. Direct download (Windows 64-bit):');
-  console.log('     ' + download.url);
-  console.log('     Unzip it, then put terraform.exe in a folder on your PATH, for example C:\\Program Files\\Terraform.');
-  console.log('\n  2. Official install guide (all platforms, step by step):');
-  console.log('     https://developer.hashicorp.com/terraform/install');
-  console.log('\n  3. Windows Package Manager (installs the latest version for you):');
-  console.log('     winget install Hashicorp.Terraform');
-  console.log('     Then open a NEW terminal window so it can find terraform.');
-  console.log('\n  Check it worked: terraform -version');
-}
-
-function printGoogleCloudCliInstructions() {
-  console.log('\n  1. Direct installer (Windows 64-bit):');
-  console.log('     https://dl.google.com/dl/cloudsdk/channels/rapid/GoogleCloudSDKInstaller.exe');
-  console.log('\n  2. Official install guide (all platforms, step by step):');
-  console.log('     https://cloud.google.com/sdk/docs/install');
-  console.log('\n  3. Windows Package Manager (installs the latest version for you):');
-  console.log('     winget install Google.CloudSDK');
-  console.log('     Then open a NEW terminal window so it can find gcloud.');
-  console.log('\n  Check it worked: gcloud --version');
-}
-
-async function checkPrerequisites() {
+function checkPrerequisites() {
   showProgress(1, 5, 'Checking required tools');
-  const missingTerraform = !hasCommand('terraform');
-  const missingGcloud = !hasCommand('gcloud');
-  if (!missingTerraform && !missingGcloud) {
-    console.log('Prerequisites found: Terraform and Google Cloud CLI.');
+  if (hasCommand('terraform')) {
+    console.log('Prerequisites found: Terraform is ready.');
     return;
   }
-  console.log('\nMissing required tools. Here is how to install each one.');
-  if (missingTerraform) {
-    console.log('\n--- Terraform ---');
-    console.log('Terraform is the tool that creates and updates the Google Cloud resources for this setup.');
-    console.log('It is free and open source. Install it once on this computer.');
-    const download = await latestTerraformWindowsLink();
-    console.log('     Current version: ' + download.version);
-    printTerraformInstructions(download);
+
+  const localBin = process.platform === 'win32'
+    ? path.join(process.env.LOCALAPPDATA || process.env.USERPROFILE || '.', 'CDM', 'bin')
+    : path.join(process.env.HOME || '.', '.cdm', 'bin');
+  const exeName = process.platform === 'win32' ? 'terraform.exe' : 'terraform';
+  const localExe = path.join(localBin, exeName);
+
+  if (fs.existsSync(localExe)) {
+    process.env.PATH = `${localBin}${path.delimiter}${process.env.PATH}`;
+    console.log(`Prerequisites found: Using Terraform from ${localBin}.`);
+    return;
   }
-  if (missingGcloud) {
-    console.log('\n--- Google Cloud CLI (gcloud) ---');
-    console.log('gcloud signs in to your Google Cloud project and runs the deployment commands.');
-    printGoogleCloudCliInstructions();
+
+  console.log('\nTerraform was not detected on this computer.');
+  console.log('Installing Terraform automatically (HashiCorp official release)...');
+  try {
+    if (process.platform === 'win32') {
+      installTerraformWindows(localBin);
+    } else {
+      fs.mkdirSync(localBin, { recursive: true });
+      const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
+      const osName = process.platform === 'darwin' ? 'darwin' : 'linux';
+      const url = `https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_${osName}_${arch}.zip`;
+      spawnSync('curl', ['-fsSL', url, '-o', path.join(localBin, 'tf.zip')], { stdio: 'inherit' });
+      spawnSync('unzip', ['-o', path.join(localBin, 'tf.zip'), '-d', localBin], { stdio: 'inherit' });
+      try { fs.unlinkSync(path.join(localBin, 'tf.zip')); } catch (_) {}
+    }
+
+    if (fs.existsSync(localExe)) {
+      try { fs.chmodSync(localExe, 0o755); } catch (_) {}
+      process.env.PATH = `${localBin}${path.delimiter}${process.env.PATH}`;
+      console.log('Terraform installed successfully!');
+      return;
+    }
+  } catch (err) {
+    console.warn(`Automatic installation note: ${err.message}`);
   }
-  console.log('\nNothing was changed. No cloud resources were created and no plan was run.');
-  console.log('Install the tools above, open a NEW terminal window, then run this setup again.');
-  const error = new Error('Required tools are not installed.');
-  error.keepOpen = true;
-  throw error;
+
+  if (!hasCommand('terraform')) {
+    const error = new Error('Terraform is required. Please download it from https://developer.hashicorp.com/terraform/downloads');
+    error.keepOpen = true;
+    throw error;
+  }
 }
 
 async function main() {
@@ -223,7 +196,7 @@ async function main() {
   console.log('This runs in your Google Cloud project. Review each answer and the Terraform plan.');
   console.log('The package only supports its documented Cloud Run + NEW Cloud SQL design.');
   console.log('No resources are created until you explicitly type APPLY and your project ID.');
-  await checkPrerequisites();
+  checkPrerequisites();
   showProgress(2, 5, 'Collecting project and deployment settings');
 
   const project = await ask('Google Cloud project ID');
@@ -339,8 +312,8 @@ async function main() {
 
   try {
     showProgress(4, 5, 'Initializing Terraform and creating a review plan');
-    await run('terraform', ['init','-input=false'], outputDir);
-    await run('terraform', ['plan','-input=false','-out=cdm.tfplan'], outputDir);
+    run('terraform', ['init','-input=false'], outputDir);
+    run('terraform', ['plan','-input=false','-out=cdm.tfplan'], outputDir);
   } catch (e) {
     console.error(`\nPlan did not complete: ${e.message}`);
     console.error(`Your files remain in ${outputDir}. No apply was run.`);
@@ -355,7 +328,7 @@ async function main() {
     return;
   }
   try {
-    await run('terraform', ['apply','-input=false','cdm.tfplan'], outputDir);
+    run('terraform', ['apply','-input=false','cdm.tfplan'], outputDir);
     console.log('\nTerraform apply finished. Check the outputs above and verify the app health and sign-in.');
   } catch (e) {
     console.error(`\nApply did not complete: ${e.message}`);
@@ -363,6 +336,21 @@ async function main() {
     process.exitCode = 1;
   }
 }
+function pauseAndExit(code = 0) {
+  process.exitCode = code;
+  if (process.platform === 'win32' && !process.env.CI && process.env.CDM_GCP_NO_PAUSE !== '1') {
+    try {
+      if (stdin.isTTY) {
+        try { stdin.setRawMode(false); } catch (_) {}
+      }
+      stdout.write('\nPress Enter to close this window...');
+      const buf = Buffer.alloc(1);
+      try { fs.readSync(0, buf, 0, 1, null); } catch (_) {}
+    } catch (_) {}
+  }
+  process.exit(code);
+}
+
 if (process.argv.includes('--self-test')) {
   const required = ['main.tf', 'variables.tf', 'outputs.tf', 'versions.tf', '.gitignore'];
   const missing = required.filter((name) => !embedded[name] && !fs.existsSync(path.join(__dirname, name)));
@@ -373,12 +361,10 @@ if (process.argv.includes('--self-test')) {
     console.log(`Bundle self-test passed: CLI and ${required.length} Terraform support files are present.`);
   }
 } else {
-  main().catch((e) => {
-    console.error(`\nSetup stopped: ${e.message}`);
-    process.exitCode = 1;
-    if (process.platform === 'win32' && !process.env.CI && process.env.CDM_GCP_NO_PAUSE !== '1') {
-      console.error('\nPress any key to close this window.');
-      spawnSync('cmd.exe', ['/c', 'pause'], { stdio: 'inherit', windowsHide: false });
-    }
-  });
+  main()
+    .then(() => pauseAndExit(process.exitCode || 0))
+    .catch((e) => {
+      console.error(`\nSetup stopped: ${e.message}`);
+      pauseAndExit(1);
+    });
 }
