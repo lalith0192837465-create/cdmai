@@ -44,15 +44,15 @@ Only the customer’s authorized cloud administrator should run `terraform destr
 
 The current GitHub release includes two customer-facing GCP downloads:
 
-- `CDM-GCP-Setup.exe`: guided Windows setup window with the Terraform files embedded; no unzip or Node.js install is needed. Progress, questions, secret fields, review-plan output, and the final project-specific approval are shown in the window, not a console.
+- `CDM-GCP-Setup.exe`: guided Windows installer for the graphical setup app. After installation, it opens the setup window; progress, questions, private fields, review-plan output, and the final project-specific approval appear there, not in a console.
 - `CDM-Google-Cloud-Setup.zip`: Terraform starter package and customer review guide for teams that want to inspect or adapt the files themselves.
 
-The desktop installer’s Google Cloud wizard saves a non-secret setup handoff, then opens the direct CLI download. It does not log into or change a customer cloud project.
+The desktop installer’s Google Cloud wizard saves a non-secret setup handoff, then opens the direct Windows setup installer download. It does not log into or change a customer cloud project.
 
 ## For the CLI customer
 
 1. Install Terraform and Google Cloud CLI using your organization’s approved process.
-2. Download and double-click `CDM-GCP-Setup.exe`. The graphical setup window opens; no Python or Node.js window is needed.
+2. Download and run `CDM-GCP-Setup.exe`, approve Windows’ run prompt if shown, and finish the installer. It then opens the graphical setup window; no Python or Node.js window should appear.
 3. Choose a local folder and start setup. Review each question in the window. The setup stops if required tools are missing or if the approved network design does not match this package.
 4. Enter application credentials in the private input fields. Values are written only to the local `terraform.tfvars`, which must stay private.
 5. Review the deployment summary and choose **Prepare review plan** to create local files and run `terraform init` and `terraform plan`.

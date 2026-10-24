@@ -6,7 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist:win": "electron-builder --win portable --x64 --publish never"
+    "dist:win": "electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
     "electron": "45.0.0",
@@ -30,7 +30,7 @@
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
@@ -41,6 +41,16 @@
     "directories": {
       "output": "dist"
     },
-    "artifactName": "CDM-GCP-Setup.${ext}"
+    "artifactName": "CDM-GCP-Setup.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CDM Google Cloud Setup",
+      "artifactName": "CDM-GCP-Setup.${ext}",
+      "runAfterFinish": true
+    }
   }
 }
