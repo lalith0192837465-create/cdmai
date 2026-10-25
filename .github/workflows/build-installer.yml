@@ -22,6 +22,7 @@ jobs:
       - run: npm install
       - run: npx electron-builder --publish never
       - name: Upload desktop installer
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: installer/dist/CDM-Setup-*
@@ -40,19 +41,53 @@ jobs:
           cd /tmp/cdm-packages
           zip -qr "$GITHUB_WORKSPACE/CDM-AWS-Setup.zip" aws VERSION.txt
           zip -qr "$GITHUB_WORKSPACE/CDM-Google-Cloud-Setup.zip" gcp VERSION.txt
-      - name: Build the GCP setup executable
-        run: |
-          npm install -g @yao-pkg/pkg@6.23.0
-          cd infra/gcp
-          node gcp-cli.js --self-test
-          pkg --target node22-win-x64 --output "$GITHUB_WORKSPACE/CDM-GCP-Setup.exe" --public-packages '*' gcp-cli.js
-          test -s "$GITHUB_WORKSPACE/CDM-GCP-Setup.exe"
       - name: Upload cloud packages
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             CDM-AWS-Setup.zip
             CDM-Google-Cloud-Setup.zip
-            CDM-GCP-Setup.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  gcp-windows-gui:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and self-test the hidden GCP engine
+        shell: pwsh
+        run: |
+          npm install --global @yao-pkg/pkg@6.23.0
+          Set-Location infra/gcp
+          node gcp-cli.js --self-test
+          pkg --target node22-win-x64 --output gui/gcp-cli.exe --public-packages '*' gcp-cli.js
+          if (!(Test-Path 'gui/gcp-cli.exe') -or (Get-Item 'gui/gcp-cli.exe').Length -lt 1000000) { throw 'GCP setup engine is missing or unexpectedly small.' }
+      - name: Build the graphical Windows installer
+        working-directory: infra/gcp/gui
+        shell: pwsh
+        run: |
+          npm ci
+          npm run dist:win
+          $installer = 'dist/CDM-GCP-Setup.exe'
+          if (!(Test-Path $installer) -or (Get-Item $installer).Length -lt 50000000) { throw 'Graphical GCP Windows installer is missing or unexpectedly small.' }
+          if (!(Test-Path 'dist/win-unpacked/resources/gcp-cli.exe')) { throw 'Packaged GUI is missing its GCP setup engine.' }
+          if (!(Test-Path 'dist/win-unpacked/resources/app.asar')) { throw 'Electron application package is missing.' }
+      - name: Upload GCP GUI installer as a workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDM-GCP-Setup-GUI-v1.2.3
+          path: infra/gcp/gui/dist/CDM-GCP-Setup.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Attach GCP GUI installer to the tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: infra/gcp/gui/dist/CDM-GCP-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

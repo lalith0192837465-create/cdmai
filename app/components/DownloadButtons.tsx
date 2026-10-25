@@ -5,7 +5,7 @@ const OPTIONS = [
   { id: "win", label: "Windows", file: "CDM-Setup-Windows.exe", description: "Desktop installer" },
   { id: "mac", label: "macOS", file: "CDM-Setup-Mac.dmg", description: "Desktop installer" },
   { id: "aws", label: "AWS", file: "CDM-AWS-Setup.zip", description: "Guided AWS deployment package" },
-  { id: "gcp", label: "Google Cloud", file: "CDM-GCP-Setup.exe", description: "Guided Windows CLI — downloads as one executable" },
+  { id: "gcp", label: "Google Cloud", file: "CDM-GCP-Setup.exe", description: "Windows setup installer — opens the guided graphical setup window" },
 ];
 function detectOS(): string { if (typeof navigator === "undefined") return "win"; return navigator.userAgent.includes("Mac") ? "mac" : "win"; }
 export default function DownloadButtons() {
