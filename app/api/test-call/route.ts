@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     await prisma.testCall.update({
       where: { id: testCall.id },
       data: { status: "failed", error: providerMessage },
-    }).catch((dbError) => console.error("Could not save failed test-call status", dbError));
+    }).catch((dbError: unknown) => console.error("Could not save failed test-call status", dbError));
     return NextResponse.json({ error: `Could not start the test: ${providerMessage}` }, { status });
   }
 }
