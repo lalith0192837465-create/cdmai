@@ -63,13 +63,6 @@ export default async function Home() {
             Choose Windows, macOS, AWS, or Google Cloud. The guided setup asks for your own credentials and brings the current CDM stack up without requiring a terminal.
           </p>
           <DownloadButtons />
-          <p style={{ textAlign: "center", color: "var(--muted)", fontSize: "0.85rem", marginTop: "24px" }}>
-            Prefer to configure it by hand instead?{" "}
-            <a href="https://github.com/lalith0192837465-create/cdmai#byoc-deployment-docker-compose" style={{ color: "var(--accent)" }}>
-              See the manual Docker Compose steps
-            </a>
-            .
-          </p>
         </div>
       </section>
 
