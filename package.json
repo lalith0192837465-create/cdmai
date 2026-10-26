@@ -9,8 +9,7 @@
     "lint": "tsc --noEmit",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "seed": "node prisma/seed.js",
-    "postinstall": "prisma generate"
+    "seed": "node prisma/seed.js"
   },
   "dependencies": {
     "next": "^16.2.11",

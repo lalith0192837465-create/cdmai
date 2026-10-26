@@ -1,10 +1,13 @@
 name: Build CDM installers and cloud packages
+
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+
 permissions:
   contents: write
+
 jobs:
   desktop:
     strategy:
@@ -28,6 +31,7 @@ jobs:
           files: installer/dist/CDM-Setup-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   cloud-packages:
     runs-on: ubuntu-latest
     steps:
@@ -58,33 +62,35 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Build and self-test the hidden GCP engine
+      - name: Build and self-test the GCP engine
         shell: pwsh
         run: |
           npm install --global @yao-pkg/pkg@6.23.0
           Set-Location infra/gcp
           node gcp-cli.js --self-test
           pkg --target node22-win-x64 --output gui/gcp-cli.exe --public-packages '*' gcp-cli.js
-          if (!(Test-Path 'gui/gcp-cli.exe') -or (Get-Item 'gui/gcp-cli.exe').Length -lt 1000000) { throw 'GCP setup engine is missing or unexpectedly small.' }
-      - name: Build the graphical Windows installer
+          if (!(Test-Path 'gui/gcp-cli.exe') -or (Get-Item 'gui/gcp-cli.exe').Length -lt 1000000) {
+            throw 'GCP deployment engine is missing or unexpectedly small.'
+          }
+      - name: Build portable single-window Windows app (no NSIS Setup wrapper)
         working-directory: infra/gcp/gui
         shell: pwsh
         run: |
-          npm ci
+          npm install
           npm run dist:win
           $installer = 'dist/CDM-GCP-Setup.exe'
-          if (!(Test-Path $installer) -or (Get-Item $installer).Length -lt 50000000) { throw 'Graphical GCP Windows installer is missing or unexpectedly small.' }
-          if (!(Test-Path 'dist/win-unpacked/resources/gcp-cli.exe')) { throw 'Packaged GUI is missing its GCP setup engine.' }
-          if (!(Test-Path 'dist/win-unpacked/resources/app.asar')) { throw 'Electron application package is missing.' }
-      - name: Upload GCP GUI installer as a workflow artifact
+          if (!(Test-Path $installer) -or (Get-Item $installer).Length -lt 50000000) {
+            throw 'Portable GCP Windows app is missing or unexpectedly small.'
+          }
+      - name: Upload GCP GUI app as workflow artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: CDM-GCP-Setup-GUI-v1.2.3
+          name: CDM-GCP-Setup-Portable
           path: infra/gcp/gui/dist/CDM-GCP-Setup.exe
           if-no-files-found: error
           retention-days: 7
-      - name: Attach GCP GUI installer to the tagged release
+      - name: Attach GCP GUI app to tagged release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:

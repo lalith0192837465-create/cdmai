@@ -4,7 +4,7 @@ variable "service_name" { type = string description = "Cloud Run service and res
 variable "container_image" { type = string description = "Approved CDM container image" default = "ghcr.io/lalith0192837465-create/cdmai:latest" }
 variable "app_url" { type = string description = "Final app URL; first apply may use the Cloud Run URL output, then apply again with it" default = "" }
 variable "database_version" { type = string description = "Customer-approved Cloud SQL PostgreSQL version" default = "POSTGRES_16" }
-variable "database_tier" { type = string description = "Customer-approved Cloud SQL machine tier" }
+variable "database_tier" { type = string description = "Customer-approved Cloud SQL machine tier" default = "db-f1-micro" }
 variable "database_availability" { type = string description = "ZONAL or REGIONAL after cost/reliability review" default = "ZONAL" validation { condition = contains(["ZONAL", "REGIONAL"], var.database_availability) error_message = "Use ZONAL or REGIONAL." } }
 variable "database_disk_gb" { type = number description = "Initial Cloud SQL SSD disk size in GB" default = 10 }
 variable "max_instances" { type = number description = "Maximum Cloud Run instances" default = 3 }
@@ -17,4 +17,5 @@ variable "google_client_secret" { type = string sensitive = true description = "
 variable "gemini_api_key" { type = string sensitive = true description = "Gemini API key" }
 variable "anthropic_api_key" { type = string sensitive = true description = "Anthropic API key (may be empty if unused)" default = "" }
 variable "skribby_api_key" { type = string sensitive = true description = "Skribby API key (may be empty if unused)" default = "" }
+variable "slack_webhook_url" { type = string sensitive = true description = "Slack incoming webhook URL (may be empty if unused)" default = "" }
 variable "webhook_secret" { type = string sensitive = true description = "Webhook verification secret" }

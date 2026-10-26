@@ -60,7 +60,7 @@ export default async function Home() {
         <div className="wrap">
           <h2>Run it in your own cloud</h2>
           <p className="lede">
-            Choose Windows, macOS, AWS, or Google Cloud. The guided setup asks for your own credentials and brings the current CDM stack up without requiring a terminal.
+            Choose AWS or Google Cloud. The guided setup asks for your own credentials and brings the current CDM stack up without requiring a terminal.
           </p>
           <DownloadButtons />
         </div>

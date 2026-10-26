@@ -1,26 +1,126 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CDM Google Cloud Setup</title><link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CDM — Install on Google Cloud</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header><div class="brand"><div class="mark">C</div><div><strong>CDM</strong><span>GOOGLE CLOUD SETUP</span></div></div><div class="secure"><span class="dot"></span> Runs on your computer</div></header>
-<main>
-<section class="hero"><div class="eyebrow">CUSTOMER-HOSTED DEPLOYMENT</div><h1>Set up CDM on Google Cloud</h1><p>Review your choices, prepare the setup files, and inspect the Terraform plan before deciding whether to apply anything.</p></section>
-<div class="notice"><strong>You stay in control</strong><span>No cloud resources are changed unless you review the plan and explicitly confirm <code>APPLY &lt;your project ID&gt;</code>. Keep this window open while applying.</span></div>
-<section class="card" id="setupCard">
-<div class="card-head"><div><h2>Choose a local folder</h2><p>The setup files, plan, and private credentials file will be saved beneath this folder.</p></div><span class="step">STEP 1</span></div>
-<div class="folder-row"><button class="button secondary" id="folderButton">Choose folder…</button><span id="folderPath" class="muted">No folder selected</span></div>
-<div class="start-row"><button class="button primary" id="startButton" disabled>Start setup</button><span class="muted">You can cancel before applying the reviewed plan.</span></div>
-</section>
-<section class="card hidden" id="promptCard" aria-live="polite">
-<div class="card-head"><div><div class="eyebrow" id="promptType">SETUP QUESTION</div><h2 id="promptTitle">Your answer</h2></div><span class="step">INPUT</span></div>
-<p id="promptHelp" class="muted"></p>
-<form id="answerForm"><label id="answerLabel" for="answerInput">Answer</label><input id="answerInput" autocomplete="off" required><div class="form-actions"><button class="button primary" id="answerButton" type="submit">Continue</button></div></form>
-</section>
-<section class="card hidden" id="finishCard"><h2 id="finishTitle">Setup finished</h2><p id="finishText" class="muted"></p></section>
-<section class="log-card"><div class="log-head"><div><h2>Setup activity</h2><p>Progress, checks, and Terraform output appear here.</p></div><span class="live"><span class="dot"></span><span id="liveText">READY</span></span></div><div id="log" class="log" role="log" aria-live="polite"><div class="empty">Choose a folder to begin. Nothing runs until you click <b>Start setup</b>.</div></div></section>
-<footer>CDM does not receive your credentials. Keep the generated setup folder and Terraform state private.</footer>
-</main><script src="renderer.js"></script>
-</body></html>
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> CDM — Google Cloud</div>
+
+    <div class="wprog">
+      <i id="p1" class="on"></i>
+      <i id="p2"></i>
+      <i id="p3"></i>
+    </div>
+
+    <div id="errBox" class="alert alert-err"></div>
+
+    <div id="step1" class="card">
+      <h2>Connect your Google Cloud account</h2>
+      <p class="lede">Select your Google Cloud Service Account JSON key and pick where CDM should run.</p>
+
+      <div class="field">
+        <label>Google Cloud Service Account Key (.json)</label>
+        <div class="file-box">
+          <span id="keyStatus" class="file-status">Select your .json key file (auto-fills Project ID)</span>
+          <button id="pickKeyBtn" class="btn btn-ghost" type="button">Choose .json file</button>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label>Google Cloud Project ID</label>
+          <input id="project_id" placeholder="my-company-prod">
+        </div>
+        <div class="field">
+          <label>Region</label>
+          <select id="region">
+            <option value="us-central1">US Central — Iowa (us-central1)</option>
+            <option value="us-east1">US East — South Carolina (us-east1)</option>
+            <option value="us-west1">US West — Oregon (us-west1)</option>
+            <option value="europe-west1">Europe West — Belgium (europe-west1)</option>
+            <option value="europe-west2">Europe West — London (europe-west2)</option>
+            <option value="asia-southeast1">Asia Southeast — Singapore (asia-southeast1)</option>
+            <option value="asia-northeast1">Asia Northeast — Tokyo (asia-northeast1)</option>
+            <option value="australia-southeast1">Australia — Sydney (australia-southeast1)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="nav-row">
+        <span class="file-status">Sets up Cloud Run + PostgreSQL 16 automatically</span>
+        <button id="nextToStep2" class="btn btn-primary" type="button">Next →</button>
+      </div>
+    </div>
+
+    <div id="step2" class="card hidden">
+      <h2>Enter your CDM keys</h2>
+      <p class="lede">CDM stores these securely inside your own Google Cloud Secret Manager.</p>
+
+      <div class="grid2">
+        <div class="field">
+          <label>Google Sign-In Client ID *</label>
+          <input id="google_client_id" placeholder="xxxx.apps.googleusercontent.com">
+        </div>
+        <div class="field">
+          <label>Google Sign-In Client Secret *</label>
+          <input id="google_client_secret" type="password" placeholder="GOCSPX-...">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Gemini API Key *</label>
+        <input id="gemini_api_key" type="password" placeholder="AIza...">
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label>Skribby Bot Key (optional)</label>
+          <input id="skribby_api_key" type="password" placeholder="For Google Meet call bot">
+        </div>
+        <div class="field">
+          <label>Slack Webhook URL (optional)</label>
+          <input id="slack_webhook_url" type="password" placeholder="https://hooks.slack.com/...">
+        </div>
+      </div>
+
+      <div class="nav-row">
+        <button id="backToStep1" class="btn btn-ghost" type="button">← Back</button>
+        <button id="installBtn" class="btn btn-primary" type="button">Install &amp; Launch CDM →</button>
+      </div>
+    </div>
+
+    <div id="step3" class="card hidden">
+      <h2 id="step3Title">Installing CDM on Google Cloud</h2>
+      <p class="lede">Setting up your database, secrets, and live CDM web app. First-time database creation takes ~5–8 minutes.</p>
+
+      <div class="bar-bg"><div id="barFill" class="bar-fill"></div></div>
+      <div id="statusText" class="status-line">Starting...</div>
+      <div id="logBox" class="log"></div>
+
+      <div id="doneBox" class="done-box">
+        <h3>CDM is live!</h3>
+        <p class="file-status">Add this Authorized Redirect URI in your Google Cloud OAuth Client so Sign-In works:</p>
+        <div class="copy-row">
+          <input id="callbackUrl" readonly>
+          <button id="copyBtn" class="btn btn-ghost" type="button">Copy</button>
+        </div>
+        <div class="nav-row">
+          <span id="liveUrlLabel" class="file-status"></span>
+          <button id="openAppBtn" class="btn btn-primary" type="button">Open CDM App →</button>
+        </div>
+      </div>
+
+      <div id="retryRow" class="nav-row hidden">
+        <button id="editKeysBtn" class="btn btn-ghost" type="button">← Edit Keys</button>
+        <button id="retryBtn" class="btn btn-primary" type="button">Retry Install</button>
+      </div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

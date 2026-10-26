@@ -7,7 +7,7 @@
   "scripts": { "start": "electron .", "dist": "electron-builder" },
   "devDependencies": { "electron": "latest", "electron-builder": "^24.13.3" },
   "build": {
-    "appId": "com.cdm.setup", "productName": "CDM Setup",
+    "appId": "com.cdm.setup", "productName": "CDM",
     "files": ["main.js", "preload.js", "docker-setup.js", "renderer/**/*"],
     "win": { "target": "nsis", "artifactName": "CDM-Setup-Windows.${ext}" },
     "mac": { "target": "dmg", "artifactName": "CDM-Setup-Mac.${ext}", "hardenedRuntime": true }

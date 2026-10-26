@@ -351,8 +351,12 @@ const mockPrisma = {
   $disconnect: async () => {},
 };
 
+const isUnreachableDockerDb = Boolean(
+  process.env.GOOGLE_RUNTIME && process.env.DATABASE_URL?.includes("@db:5432")
+);
+
 let realPrismaClient: PrismaClient | null = null;
-if (process.env.DATABASE_URL) {
+if (process.env.DATABASE_URL && !isUnreachableDockerDb) {
   try {
     realPrismaClient = new PrismaClient({
       log: process.env.NODE_ENV === "development" ? ["warn", "error"] : [],
@@ -379,6 +383,9 @@ export const prisma: any = new Proxy(mockPrisma, {
                 try {
                   return await (realPrismaClient as any)[prop][opName](...args);
                 } catch (err: any) {
+                  if (err?.code === "P1001" || String(err?.message || "").includes("Can't reach database server")) {
+                    realPrismaClient = null;
+                  }
                   console.warn(`[AI Studio] Prisma ${String(prop)}.${String(opName)} failed (${err?.message}) — falling back to mock`);
                 }
               }

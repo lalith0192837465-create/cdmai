@@ -1,20 +1,20 @@
 {
-  "name": "cdm-gcp-setup-gui",
-  "version": "1.2.3",
+  "name": "cdm-google-cloud",
+  "version": "1.2.4",
   "private": true,
-  "description": "CDM Google Cloud setup window for Windows",
+  "description": "CDM Google Cloud direct application installer",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist:win": "electron-builder --win nsis --x64 --publish never"
+    "dist:win": "electron-builder --win portable --x64 --publish never"
   },
   "devDependencies": {
     "electron": "45.0.0",
     "electron-builder": "26.15.3"
   },
   "build": {
-    "appId": "ai.cdm.gcp-setup",
-    "productName": "CDM Google Cloud Setup",
+    "appId": "ai.cdm.google-cloud",
+    "productName": "CDM Google Cloud",
     "asar": true,
     "files": [
       "main.js",
@@ -30,7 +30,7 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "portable",
           "arch": [
             "x64"
           ]
@@ -38,19 +38,11 @@
       ],
       "artifactName": "CDM-GCP-Setup.${ext}"
     },
+    "portable": {
+      "artifactName": "CDM-GCP-Setup.${ext}"
+    },
     "directories": {
       "output": "dist"
-    },
-    "artifactName": "CDM-GCP-Setup.${ext}",
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "CDM Google Cloud Setup",
-      "artifactName": "CDM-GCP-Setup.${ext}",
-      "runAfterFinish": true
     }
   }
 }

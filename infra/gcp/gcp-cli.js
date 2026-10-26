@@ -1,370 +1,944 @@
 #!/usr/bin/env node
 'use strict';
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const http = require('node:http');
+const https = require('node:https');
+const zlib = require('node:zlib');
+const crypto = require('node:crypto');
 const { stdin, stdout } = require('node:process');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 let embedded = {};
 try { embedded = require('./gcp-assets.js'); } catch (_) { embedded = {}; }
 
-// Shared line reader: one persistent queue so no typed input is ever dropped,
-// whether answers arrive one chunk at a time or several lines in a single chunk.
-let buffer = '';
-const lineQueue = [];
-const pending = [];
-let stdinDone = false;
-let hideInput = false;
+const ASSET_NAMES = ['main.tf', 'variables.tf', 'outputs.tf', 'versions.tf', '.gitignore'];
+const REGIONS = [
+  { id: 'us-central1', label: 'US Central — Iowa (us-central1)' },
+  { id: 'us-east1', label: 'US East — South Carolina (us-east1)' },
+  { id: 'us-west1', label: 'US West — Oregon (us-west1)' },
+  { id: 'europe-west1', label: 'Europe West — Belgium (europe-west1)' },
+  { id: 'europe-west2', label: 'Europe West — London (europe-west2)' },
+  { id: 'asia-southeast1', label: 'Asia Southeast — Singapore (asia-southeast1)' },
+  { id: 'asia-northeast1', label: 'Asia Northeast — Tokyo (asia-northeast1)' },
+  { id: 'australia-southeast1', label: 'Australia — Sydney (australia-southeast1)' }
+];
 
-function pushLine(line) {
-  const waiter = pending.shift();
-  if (waiter) waiter.resolve(line);
-  else lineQueue.push(line);
+function randomSecret() {
+  return crypto.randomBytes(24).toString('base64url');
 }
 
-let lastWasCR = false;
-function onData(chunk) {
-  const text = chunk.toString('utf8');
-  for (const ch of text) {
-    if (ch === '\r') { pushLine(buffer); buffer = ''; lastWasCR = true; if (stdin.isTTY) stdout.write('\n'); continue; }
-    if (ch === '\n') { if (lastWasCR) { lastWasCR = false; continue; } pushLine(buffer); buffer = ''; if (stdin.isTTY) stdout.write('\n'); continue; }
-    lastWasCR = false;
-    if (ch === '\u0003') { while (pending.length) pending.shift().reject(new Error('Cancelled by the user.')); pushLine(null); }
-    else if (ch === '\u007f' || ch === '\b') { buffer = buffer.slice(0, -1); if (stdin.isTTY && !hideInput) stdout.write('\b \b'); }
-    else if (ch === '\u001b') continue;
-    else if (ch < ' ') continue;
-    else { buffer += ch; if (stdin.isTTY && !hideInput) stdout.write(ch); }
-  }
+function tfString(value) {
+  return JSON.stringify(String(value ?? ''));
 }
-
-function onEnd() {
-  stdinDone = true;
-  if (buffer.length) { pushLine(buffer); buffer = ''; }
-  pushLine(null);
-  while (pending.length) pending.shift().resolve(null);
-}
-
-let started = false;
-
-function startReader() {
-  if (started) return;
-  started = true;
-  if (stdin.isTTY) { try { stdin.setRawMode(true); } catch (_) {} }
-  stdin.on('data', onData);
-  stdin.on('end', onEnd);
-  stdin.on('error', onEnd);
-  stdin.resume();
-}
-
-function nextLine() {
-  startReader();
-  if (lineQueue.length) return Promise.resolve(lineQueue.shift());
-  if (stdinDone) return Promise.resolve(null);
-  return new Promise((resolve, reject) => pending.push({ resolve, reject }));
-}
-
-function readLine(promptText) {
-  stdout.write(promptText);
-  return nextLine().then((line) => {
-    if (line === null) throw new Error('Input ended before the setup finished. Nothing was changed.');
-    return line;
-  });
-}
-
-async function ask(label, fallback = '') {
-  const suffix = fallback ? ` [${fallback}]` : '';
-  const value = await readLine(`${label}${suffix}: `);
-  return value.trim() || fallback;
-}
-
-async function askSecret(label, optional = false) {
-  const previous = hideInput;
-  hideInput = true;
-  let value;
-  try {
-    value = await readLine(`${label}${optional ? ' (leave blank if unused)' : ''}: `);
-  } finally {
-    hideInput = previous;
-  }
-  if (!value && !optional) throw new Error(`${label} is required.`);
-  return value;
-}
-
-function run(command, args, cwd, extra = {}) {
-  const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32', ...extra });
-  if (result.error) throw new Error(`${command} could not start: ${result.error.message}`);
-  if (result.status !== 0) throw new Error(`${command} stopped (exit ${result.status}). No further action was taken.`);
-}
-
-function showProgress(step, total, label) {
-  const width = 20;
-  const filled = Math.round((step / total) * width);
-  console.log(`\n[${'#'.repeat(filled)}${'.'.repeat(width - filled)}] ${Math.round((step / total) * 100)}% — ${label}`);
-}
-
-function tfString(value) { return JSON.stringify(value); }
-
-function stopIfUnsupported(value) {
-  console.log('\nThis package only configures its documented Cloud Run + NEW Cloud SQL design.');
-  console.log('It does not set up an existing database, private-IP Cloud SQL, a customer VPC, or custom routing.');
-  if (String(value).trim().toLowerCase() !== 'yes') {
-    throw new Error('Your requirements need a different reviewed design. No Terraform was run.');
-  }
-}
-
 
 function hasCommand(command) {
-  const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', [command], { encoding: 'utf8', timeout: 10000, windowsHide: true });
-  return probe.status === 0 && !!probe.stdout.trim();
-}
-
-function installTerraformWindows(targetDir) {
-  fs.mkdirSync(targetDir, { recursive: true });
-  console.log('Downloading Terraform binary from HashiCorp...');
-  const psCmd = `
-    $ErrorActionPreference = 'Stop'
-    $url = 'https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_windows_amd64.zip'
-    $zip = Join-Path '${targetDir.replace(/'/g, "''")}' 'terraform.zip'
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-    Expand-Archive -Path $zip -DestinationPath '${targetDir.replace(/'/g, "''")}' -Force
-    Remove-Item $zip -Force
-  `.replace(/\r?\n\s*/g, ' ');
-  const res = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCmd], {
-    stdio: 'inherit',
-    windowsHide: true,
+  const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', [command], {
+    encoding: 'utf8',
+    timeout: 10000,
+    windowsHide: true
   });
-  if (res.status !== 0) {
-    throw new Error('Could not download Terraform automatically. Please install it from https://developer.hashicorp.com/terraform/downloads');
-  }
+  return probe.status === 0 && Boolean(probe.stdout && probe.stdout.trim());
 }
 
-function checkPrerequisites() {
-  showProgress(1, 5, 'Checking required tools');
+function getAppDataBase() {
+  if (process.platform === 'win32') {
+    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'CDM');
+  }
+  return path.join(os.homedir(), '.cdm');
+}
+
+function downloadBufferHttps(url, onProgress) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'CDM-Installer/2.0' } }, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        const nextUrl = new URL(res.headers.location, url).toString();
+        resolve(downloadBufferHttps(nextUrl, onProgress));
+        return;
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`Download failed with HTTP ${res.statusCode}`));
+        return;
+      }
+      const total = Number(res.headers['content-length'] || 0);
+      const chunks = [];
+      let received = 0;
+      let lastReportedBucket = -1;
+      res.on('data', (chunk) => {
+        chunks.push(chunk);
+        received += chunk.length;
+        if (total > 0 && onProgress) {
+          const pct = Math.floor((received / total) * 100);
+          const bucket = Math.floor(pct / 25);
+          if (bucket > lastReportedBucket) {
+            lastReportedBucket = bucket;
+            onProgress(Math.min(100, bucket * 25));
+          }
+        }
+      });
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+  });
+}
+
+// Pure built-in Node.js ZIP single-file extractor (zero PowerShell / curl / unzip needed)
+function extractSingleFileFromZip(zipBuf, targetFileName) {
+  let eocd = -1;
+  const minOffset = Math.max(0, zipBuf.length - 65557);
+  for (let i = zipBuf.length - 22; i >= minOffset; i--) {
+    if (zipBuf.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error('Downloaded archive is not a valid ZIP file.');
+  const totalEntries = zipBuf.readUInt16LE(eocd + 10);
+  let ptr = zipBuf.readUInt32LE(eocd + 16);
+
+  for (let i = 0; i < totalEntries; i++) {
+    if (zipBuf.readUInt32LE(ptr) !== 0x02014b50) {
+      throw new Error('Corrupt ZIP central directory.');
+    }
+    const method = zipBuf.readUInt16LE(ptr + 10);
+    const compSize = zipBuf.readUInt32LE(ptr + 20);
+    const uncompSize = zipBuf.readUInt32LE(ptr + 24);
+    const nameLen = zipBuf.readUInt16LE(ptr + 28);
+    const extraLen = zipBuf.readUInt16LE(ptr + 30);
+    const commentLen = zipBuf.readUInt16LE(ptr + 32);
+    const localHeaderOffset = zipBuf.readUInt32LE(ptr + 42);
+    const entryName = zipBuf.slice(ptr + 46, ptr + 46 + nameLen).toString('utf8');
+
+    if (entryName === targetFileName || entryName.endsWith('/' + targetFileName)) {
+      if (zipBuf.readUInt32LE(localHeaderOffset) !== 0x04034b50) {
+        throw new Error('Corrupt ZIP local file header.');
+      }
+      const lfhNameLen = zipBuf.readUInt16LE(localHeaderOffset + 26);
+      const lfhExtraLen = zipBuf.readUInt16LE(localHeaderOffset + 28);
+      const dataStart = localHeaderOffset + 30 + lfhNameLen + lfhExtraLen;
+      const compData = zipBuf.slice(dataStart, dataStart + compSize);
+      const out = method === 0 ? compData : method === 8 ? zlib.inflateRawSync(compData) : null;
+      if (!out) throw new Error(`Unsupported ZIP compression method: ${method}`);
+      if (out.length !== uncompSize) throw new Error('Extracted binary size mismatch.');
+      return out;
+    }
+    ptr += 46 + nameLen + extraLen + commentLen;
+  }
+  throw new Error(`${targetFileName} not found inside downloaded archive.`);
+}
+
+async function ensureCloudEngine(log = console.log) {
   if (hasCommand('terraform')) {
-    console.log('Prerequisites found: Terraform is ready.');
+    log('✓ Cloud deployment engine ready.');
     return;
   }
-
-  const localBin = process.platform === 'win32'
-    ? path.join(process.env.LOCALAPPDATA || process.env.USERPROFILE || '.', 'CDM', 'bin')
-    : path.join(process.env.HOME || '.', '.cdm', 'bin');
+  const binDir = path.join(getAppDataBase(), 'bin');
   const exeName = process.platform === 'win32' ? 'terraform.exe' : 'terraform';
-  const localExe = path.join(localBin, exeName);
+  const localExe = path.join(binDir, exeName);
 
-  if (fs.existsSync(localExe)) {
-    process.env.PATH = `${localBin}${path.delimiter}${process.env.PATH}`;
-    console.log(`Prerequisites found: Using Terraform from ${localBin}.`);
+  if (fs.existsSync(localExe) && fs.statSync(localExe).size > 10_000_000) {
+    process.env.PATH = `${binDir}${path.delimiter}${process.env.PATH}`;
+    log('✓ Cloud deployment engine ready (cached).');
     return;
   }
 
-  console.log('\nTerraform was not detected on this computer.');
-  console.log('Installing Terraform automatically (HashiCorp official release)...');
-  try {
-    if (process.platform === 'win32') {
-      installTerraformWindows(localBin);
-    } else {
-      fs.mkdirSync(localBin, { recursive: true });
-      const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
-      const osName = process.platform === 'darwin' ? 'darwin' : 'linux';
-      const url = `https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_${osName}_${arch}.zip`;
-      spawnSync('curl', ['-fsSL', url, '-o', path.join(localBin, 'tf.zip')], { stdio: 'inherit' });
-      spawnSync('unzip', ['-o', path.join(localBin, 'tf.zip'), '-d', localBin], { stdio: 'inherit' });
-      try { fs.unlinkSync(path.join(localBin, 'tf.zip')); } catch (_) {}
-    }
+  fs.mkdirSync(binDir, { recursive: true });
+  const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
+  const osName = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'darwin' : 'linux';
+  const url = `https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_${osName}_${arch}.zip`;
 
-    if (fs.existsSync(localExe)) {
-      try { fs.chmodSync(localExe, 0o755); } catch (_) {}
-      process.env.PATH = `${localBin}${path.delimiter}${process.env.PATH}`;
-      console.log('Terraform installed successfully!');
-      return;
-    }
-  } catch (err) {
-    console.warn(`Automatic installation note: ${err.message}`);
-  }
+  log('Downloading cloud deployment engine...');
+  const zipBuf = await downloadBufferHttps(url, (pct) => {
+    log(`  Downloading engine... ${pct}%`);
+  });
+  log('Extracting cloud deployment engine...');
+  const binary = extractSingleFileFromZip(zipBuf, exeName);
+  const tmpExe = `${localExe}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmpExe, binary, { mode: 0o755 });
+  fs.renameSync(tmpExe, localExe);
+  try { fs.chmodSync(localExe, 0o755); } catch (_) {}
 
-  if (!hasCommand('terraform')) {
-    const error = new Error('Terraform is required. Please download it from https://developer.hashicorp.com/terraform/downloads');
-    error.keepOpen = true;
-    throw error;
-  }
+  process.env.PATH = `${binDir}${path.delimiter}${process.env.PATH}`;
+  log('✓ Cloud deployment engine installed.');
 }
 
-async function main() {
-  console.log('\nCDM — Google Cloud setup');
-  console.log('Starting the GCP setup check. This window will stay open if anything needs your attention.');
-  console.log('This runs in your Google Cloud project. Review each answer and the Terraform plan.');
-  console.log('The package only supports its documented Cloud Run + NEW Cloud SQL design.');
-  console.log('No resources are created until you explicitly type APPLY and your project ID.');
-  checkPrerequisites();
-  showProgress(2, 5, 'Collecting project and deployment settings');
-
-  const project = await ask('Google Cloud project ID');
-  if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project)) {
-    throw new Error('That does not look like a valid Google Cloud project ID (must start with a letter, end with a letter or digit).');
+function loadAssets() {
+  const sourceDir = path.dirname(process.argv[1] || __dirname);
+  const assets = {};
+  for (const name of ASSET_NAMES) {
+    if (embedded[name]) {
+      assets[name] = Buffer.from(embedded[name]);
+    } else {
+      assets[name] = fs.readFileSync(path.join(sourceDir, name));
+    }
+    if (!assets[name] || assets[name].length === 0) {
+      throw new Error(`Installer bundle is missing ${name}.`);
+    }
   }
-  const region = await ask('Cloud region', 'us-central1');
-  if (!/^[a-z]+-[a-z0-9]+[0-9]$/.test(region)) throw new Error('Enter a region such as us-central1 or europe-west1.');
-  const service = await ask('Cloud Run service name', 'cdm');
-  if (!/^[a-z][a-z0-9-]{0,48}[a-z0-9]$/.test(service)) throw new Error('Use a lowercase service name: letters, numbers, and hyphens only.');
-  const dbTier = await ask('Cloud SQL machine tier (confirm current price with your GCP admin)');
-  if (!/^[a-z0-9-]+$/.test(dbTier)) throw new Error('Enter a valid-looking Cloud SQL tier.');
-  const availability = (await ask('Database availability: ZONAL or REGIONAL', 'ZONAL')).toUpperCase();
-  if (!['ZONAL', 'REGIONAL'].includes(availability)) throw new Error('Choose ZONAL or REGIONAL.');
-  const disk = Number(await ask('Initial database disk size in GB', '10'));
-  const maxInstances = Number(await ask('Maximum Cloud Run instances', '3'));
-  if (!Number.isInteger(disk) || disk < 10 || disk > 65536) throw new Error('Disk size must be a whole number from 10 to 65536 GB.');
-  if (!Number.isInteger(maxInstances) || maxInstances < 1 || maxInstances > 1000) throw new Error('Maximum instances must be a whole number from 1 to 1000.');
-  const publicIngress = (await ask('Allow internet traffic to reach Cloud Run? yes/no', 'yes')).toLowerCase();
-  if (!['yes','no'].includes(publicIngress)) throw new Error('Answer yes or no.');
-  const unauth = (await ask('Allow unauthenticated Cloud Run requests? yes/no (review app access first)', 'no')).toLowerCase();
-  if (!['yes','no'].includes(unauth)) throw new Error('Answer yes or no.');
-  const network = await ask('Does the included public-IP Cloud SQL design meet your approved network/security requirements? yes/no', 'no');
-  stopIfUnsupported(network);
+  return assets;
+}
 
-  console.log('\nEnter the required application credentials (not echoed in a real terminal).');
-  console.log('They are written ONLY to the local terraform.tfvars file and are never sent to CDM.');
-  const secrets = {
-    nextauth_secret: await askSecret('NextAuth secret'),
-    google_client_id: await askSecret('Google OAuth client ID'),
-    google_client_secret: await askSecret('Google OAuth client secret'),
-    gemini_api_key: await askSecret('Gemini API key'),
-    anthropic_api_key: await askSecret('Anthropic API key', true),
-    skribby_api_key: await askSecret('Skribby API key', true),
-    webhook_secret: await askSecret('Webhook verification secret')
-  };
+function prepareWorkspace(raw) {
+  const project = String(raw.project_id || '').trim();
+  if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(project)) {
+    throw new Error('Enter a valid Google Cloud Project ID (for example: my-company-prod).');
+  }
+  const region = String(raw.region || 'us-central1').trim();
+  if (!/^[a-z]+-[a-z0-9]+[0-9]$/.test(region)) {
+    throw new Error('Choose a valid Google Cloud region.');
+  }
+  const googleClientId = String(raw.google_client_id || '').trim();
+  const googleClientSecret = String(raw.google_client_secret || '').trim();
+  const geminiApiKey = String(raw.gemini_api_key || '').trim();
+  if (!googleClientId) throw new Error('Google Sign-In Client ID is required.');
+  if (!googleClientSecret) throw new Error('Google Sign-In Client Secret is required.');
+  if (!geminiApiKey) throw new Error('Gemini API Key is required.');
+
+  const workDir = path.join(getAppDataBase(), 'deployments', project);
+  fs.mkdirSync(workDir, { recursive: true, mode: 0o700 });
+
+  let credentialsPath = '';
+  const serviceAccountJson = String(raw.service_account_json || '').trim();
+  if (serviceAccountJson) {
+    let parsedKey;
+    try {
+      parsedKey = JSON.parse(serviceAccountJson);
+    } catch {
+      throw new Error('The uploaded Google Cloud key file is not valid JSON.');
+    }
+    if (!parsedKey.client_email || !parsedKey.private_key) {
+      throw new Error('The uploaded JSON file is not a Google Cloud Service Account key (missing client_email or private_key).');
+    }
+    credentialsPath = path.join(workDir, 'gcp-service-account.json');
+    fs.writeFileSync(credentialsPath, JSON.stringify(parsedKey, null, 2), { mode: 0o600 });
+  }
+
+  // Preserve previously generated secrets if re-running for the same project
+  let existingSecrets = {};
+  const secretsMetaPath = path.join(workDir, 'secrets-meta.json');
+  if (fs.existsSync(secretsMetaPath)) {
+    try { existingSecrets = JSON.parse(fs.readFileSync(secretsMetaPath, 'utf8')); } catch (_) {}
+  }
+  const nextauthSecret = existingSecrets.nextauth_secret || randomSecret();
+  const webhookSecret = existingSecrets.webhook_secret || randomSecret();
+  fs.writeFileSync(secretsMetaPath, JSON.stringify({ nextauth_secret: nextauthSecret, webhook_secret: webhookSecret }), { mode: 0o600 });
+
+  const assets = loadAssets();
+  for (const name of ASSET_NAMES) {
+    fs.writeFileSync(path.join(workDir, name), assets[name], { mode: 0o600 });
+  }
 
   const settings = {
-    project_id: project, region, service_name: service,
+    project_id: project,
+    region,
+    service_name: 'cdm',
     container_image: 'ghcr.io/lalith0192837465-create/cdmai:latest',
-    app_url: '', database_version: 'POSTGRES_16', database_tier: dbTier,
-    database_availability: availability, database_disk_gb: disk,
-    max_instances: maxInstances, deletion_protection: true,
-    allow_public_ingress: publicIngress === 'yes',
-    allow_unauthenticated: unauth === 'yes', ...secrets
+    app_url: String(raw.app_url || '').trim(),
+    database_version: 'POSTGRES_16',
+    database_tier: String(raw.database_tier || 'db-f1-micro').trim(),
+    database_availability: 'ZONAL',
+    database_disk_gb: 10,
+    max_instances: 3,
+    deletion_protection: false,
+    allow_public_ingress: true,
+    allow_unauthenticated: true,
+    nextauth_secret: nextauthSecret,
+    google_client_id: googleClientId,
+    google_client_secret: googleClientSecret,
+    gemini_api_key: geminiApiKey,
+    anthropic_api_key: String(raw.anthropic_api_key || '').trim(),
+    skribby_api_key: String(raw.skribby_api_key || '').trim(),
+    slack_webhook_url: String(raw.slack_webhook_url || '').trim(),
+    webhook_secret: webhookSecret
   };
 
-  console.log('\n=== DEPLOYMENT SUMMARY ===');
-  console.log(`  Project: ${project}`);
-  console.log(`  Region: ${region}`);
-  console.log(`  Cloud Run: ${service} (up to ${maxInstances} instances)`);
-  console.log(`  Cloud SQL: PostgreSQL 16, ${dbTier}, ${availability}, ${disk} GB`);
-  console.log(`  Internet ingress: ${publicIngress}`);
-  console.log(`  Unauthenticated Cloud Run access: ${unauth}`);
-  console.log('  Resources: APIs, runtime service account, Cloud SQL, Secret Manager, Cloud Run, IAM grants');
-  console.log('\nThe terraform plan can incur GCP charges. The plan is shown before any apply.');
+  writeTfvars(workDir, settings);
+  return { workDir, settings, credentialsPath };
+}
 
-  const confirm = (await ask('Type PLAN to create the local setup and run terraform plan')).toUpperCase();
-  if (confirm !== 'PLAN') throw new Error('Cancelled. No cloud changes were made.');
+function writeTfvars(workDir, settings) {
+  const lines = Object.entries(settings).map(([k, v]) =>
+    `${k} = ${typeof v === 'boolean' || typeof v === 'number' ? v : tfString(v)}`
+  );
+  fs.writeFileSync(path.join(workDir, 'terraform.tfvars'), lines.join('\n') + '\n', { mode: 0o600 });
+}
 
-  const outputDir = path.join(process.cwd(), `cdm-gcp-${project}`);
-  if (fs.existsSync(outputDir)) throw new Error(`Output folder already exists: ${outputDir}. Move it or choose another location; nothing was overwritten.`);
-  const sourceDir = path.dirname(process.argv[1]);
+function runStreaming(command, args, cwd, extraEnv, onLine) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: { ...process.env, ...extraEnv },
+      shell: process.platform === 'win32',
+      windowsHide: true
+    });
+    let outputText = '';
+    const forward = (chunk) => {
+      const text = chunk.toString('utf8').replace(/\x1b\[[0-9;]*m/g, '');
+      outputText += text;
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed) onLine(trimmed);
+      }
+    };
+    child.stdout.on('data', forward);
+    child.stderr.on('data', forward);
+    child.on('error', (err) => reject(new Error(`${command} could not start: ${err.message}`)));
+    child.on('close', (code) => {
+      if (code === 0) resolve(outputText.trim());
+      else reject(new Error(`${command} exited with code ${code}`));
+    });
+  });
+}
 
-  const assetNames = ['main.tf','variables.tf','outputs.tf','versions.tf','.gitignore'];
-  const assets = {};
-  for (const name of assetNames) {
-    if (embedded[name]) { assets[name] = Buffer.from(embedded[name]); }
-    else { const source = path.join(sourceDir, name); assets[name] = fs.readFileSync(source); }
-  }
-  for (const [name, buf] of Object.entries(assets)) {
-    if (!buf || buf.length === 0) throw new Error(`The package is incomplete: ${name} is missing. Re-download the setup package.`);
-  }
+function waitForHealth(url, maxWaitMs = 45000) {
+  const deadline = Date.now() + maxWaitMs;
+  return new Promise((resolve) => {
+    const attempt = () => {
+      if (Date.now() > deadline) return resolve(false);
+      const req = https.get(`${url.replace(/\/$/, '')}/api/health`, { timeout: 6000 }, (res) => {
+        res.resume();
+        if (res.statusCode === 200) resolve(true);
+        else setTimeout(attempt, 3000);
+      });
+      req.on('error', () => setTimeout(attempt, 3000));
+      req.on('timeout', () => { req.destroy(); setTimeout(attempt, 3000); });
+    };
+    attempt();
+  });
+}
 
-  fs.mkdirSync(outputDir, { mode: 0o700 });
-  try {
-    for (const name of assetNames) {
-      fs.writeFileSync(path.join(outputDir, name), assets[name], { mode: 0o600, flag: 'wx' });
+async function deployCdmApplication(rawConfig, onEvent) {
+  const emit = (progress, status, line) => onEvent({ progress, status, line });
+
+  emit(8, 'Preparing cloud deployment engine...', 'Step 1/4: Checking cloud engine...');
+  await ensureCloudEngine((msg) => emit(12, 'Preparing cloud deployment engine...', msg));
+
+  emit(18, 'Configuring Google Cloud workspace...', 'Step 2/4: Preparing CDM configuration...');
+  const { workDir, settings, credentialsPath } = prepareWorkspace(rawConfig);
+  const extraEnv = credentialsPath ? { GOOGLE_APPLICATION_CREDENTIALS: credentialsPath } : {};
+
+  emit(24, 'Connecting to Google Cloud...', 'Initializing Google Cloud providers...');
+  await runStreaming('terraform', ['init', '-input=false', '-no-color'], workDir, extraEnv, (l) => {
+    if (/Initializing|installed|reusing/i.test(l)) emit(30, 'Connecting to Google Cloud...', l);
+  });
+
+  emit(38, 'Creating PostgreSQL database & deploying CDM (takes ~5–8 mins on first install)...', 'Step 3/4: Provisioning Cloud SQL database, Secret Manager & Cloud Run...');
+  let currentPct = 38;
+  await runStreaming('terraform', ['apply', '-input=false', '-auto-approve', '-no-color'], workDir, extraEnv, (l) => {
+    if (/Creating\.\.\.|Still creating\.\.\.|Creation complete|Modifying\.\.\.|Apply complete/i.test(l)) {
+      currentPct = Math.min(82, currentPct + 2);
+      emit(currentPct, 'Deploying CDM & database to Google Cloud...', l);
+    } else if (/Error:|googleapi:/i.test(l)) {
+      emit(currentPct, 'Google Cloud reported an issue...', l);
     }
-    const lines = Object.entries(settings).map(([k,v]) => `${k} = ${typeof v === 'boolean' || typeof v === 'number' ? v : tfString(v)}`);
-    fs.writeFileSync(path.join(outputDir,'terraform.tfvars'), lines.join('\n')+'\n', { mode: 0o600, flag: 'wx' });
-    const readmeLines = [
-      '# CDM Google Cloud setup',
-      '',
-      `Project: ${project}`,
-      `Region: ${region}`,
-      '',
-      'This package provisions Cloud Run and a new Cloud SQL PostgreSQL database using the',
-      'network model you reviewed during setup. Confirm your approved architecture, access,',
-      'costs, OAuth callback URL, and billing with your cloud administrator before applying.',
-      '',
-      'terraform.tfvars and the Terraform state contain sensitive data. Keep this folder private.',
-      '',
-      '## Review and deploy',
-      '1. Authenticate to the customer-owned project with your approved identity:',
-      '   gcloud auth application-default login',
-      `2. Select the project: gcloud config set project ${project}`,
-      '3. Initialize: terraform init',
-      '4. Plan: terraform plan -out=cdm.tfplan',
-      '5. Review every resource and charge with your cloud administrator.',
-      `6. Apply the reviewed plan: terraform apply cdm.tfplan`,
-      '7. Configure the Google OAuth callback for the deployed URL, then verify health and sign-in.',
-      '',
-      'To let the CLI run these steps, type PLAN at its prompt. It never applies without',
-      `you typing APPLY ${project} after reading the plan.`,
-      ''
-    ];
-    fs.writeFileSync(path.join(outputDir,'README-CUSTOMER.md'), readmeLines.join('\n'), { mode: 0o600, flag: 'wx' });
-  } catch (e) { fs.rmSync(outputDir, {recursive:true, force:true}); throw e; }
+  });
 
-  showProgress(3, 5, `Setup files prepared in: ${outputDir}`);
-  console.log('Terraform will now initialize and show a plan. It will NOT apply changes.');
+  emit(86, 'Configuring live app URL...', 'Step 4/4: Reading deployed CDM URL...');
+  const serviceUrl = (await runStreaming('terraform', ['output', '-raw', 'service_url'], workDir, extraEnv, () => {})).trim();
 
-  try {
-    showProgress(4, 5, 'Initializing Terraform and creating a review plan');
-    run('terraform', ['init','-input=false'], outputDir);
-    run('terraform', ['plan','-input=false','-out=cdm.tfplan'], outputDir);
-  } catch (e) {
-    console.error(`\nPlan did not complete: ${e.message}`);
-    console.error(`Your files remain in ${outputDir}. No apply was run.`);
-    process.exitCode = 1;
-    return;
+  if (serviceUrl && serviceUrl.startsWith('https://') && settings.app_url !== serviceUrl) {
+    settings.app_url = serviceUrl;
+    writeTfvars(workDir, settings);
+    emit(90, 'Finalizing Google Sign-In URL...', `Linking live URL ${serviceUrl} to CDM...`);
+    await runStreaming('terraform', ['apply', '-input=false', '-auto-approve', '-no-color'], workDir, extraEnv, (l) => {
+      if (/Modifying|Apply complete/i.test(l)) emit(95, 'Finalizing Google Sign-In URL...', l);
+    });
   }
 
-  showProgress(5, 5, 'Plan is ready for your review — nothing has been applied');
-  const approval = await ask(`Type APPLY ${project} to apply exactly the plan you just reviewed`);
-  if (approval !== `APPLY ${project}`) {
-    console.log('\nNot applied. Your saved plan and setup files remain available for later review.');
-    return;
+  emit(97, 'Verifying CDM is online...', 'Checking live CDM health endpoint...');
+  await waitForHealth(serviceUrl, 40000);
+  emit(100, 'CDM is live on Google Cloud!', `✓ CDM is live at: ${serviceUrl}`);
+  return serviceUrl;
+}
+
+function openExternalUrl(url, appWindowMode = false) {
+  if (process.platform === 'win32') {
+    if (appWindowMode) {
+      const edgePaths = [
+        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft\\Edge\\Application\\msedge.exe'),
+        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Microsoft\\Edge\\Application\\msedge.exe'),
+        path.join(process.env.LOCALAPPDATA || '', 'Microsoft\\Edge\\Application\\msedge.exe')
+      ];
+      for (const edge of edgePaths) {
+        if (edge && fs.existsSync(edge)) {
+          try {
+            const child = spawn(edge, [`--app=${url}`, '--window-size=740,800'], { detached: true, stdio: 'ignore', windowsHide: false });
+            child.unref();
+            return true;
+          } catch (_) {}
+        }
+      }
+    }
+    const res = spawnSync('cmd.exe', ['/c', 'start', '', url], { windowsHide: true });
+    return res.status === 0;
   }
-  try {
-    run('terraform', ['apply','-input=false','cdm.tfplan'], outputDir);
-    console.log('\nTerraform apply finished. Check the outputs above and verify the app health and sign-in.');
-  } catch (e) {
-    console.error(`\nApply did not complete: ${e.message}`);
-    console.error(`Your files remain in ${outputDir}. Review the error and try again later.`);
-    process.exitCode = 1;
+  if (process.platform === 'darwin') {
+    return spawnSync('open', [url]).status === 0;
+  }
+  if (hasCommand('xdg-open')) {
+    return spawnSync('xdg-open', [url]).status === 0;
+  }
+  return false;
+}
+
+function buildInstallerHtml(sessionToken) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Install CDM on Google Cloud</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0B0B0F; --panel: #131316; --panel-2: #1A1A1F; --border: #26262C;
+    --text: #F2F2F5; --muted: #8F8F98; --accent: #6E7BF2; --accent-2: #5E6AD2;
+    --ok: #30A46C; --err: #E5484D;
+  }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.5; padding: 28px 32px;
+  }
+  .wrap { max-width: 660px; margin: 0 auto; }
+  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .brand { font-weight: 600; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 9px; height: 9px; border-radius: 3px; background: var(--accent); }
+  .wprog { display: flex; gap: 6px; margin-bottom: 24px; }
+  .wprog i { flex: 1; height: 3px; background: var(--border); border-radius: 2px; transition: background 0.2s; }
+  .wprog i.on { background: var(--accent); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+  h2 { font-size: 1.18rem; margin-bottom: 6px; }
+  .lede { color: var(--muted); font-size: 0.9rem; margin-bottom: 20px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 6px; }
+  input, select {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; color: var(--text); font: inherit; font-size: 0.9rem;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .file-box {
+    background: var(--panel-2); border: 1px dashed var(--border); border-radius: 9px;
+    padding: 13px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .file-status { font-size: 0.84rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-status.loaded { color: #6BD99E; font-weight: 500; }
+  .btn {
+    font: inherit; font-weight: 600; font-size: 0.9rem; padding: 10px 18px;
+    border-radius: 10px; border: 1px solid transparent; cursor: pointer; white-space: nowrap;
+  }
+  .btn-primary { background: var(--accent-2); color: #fff; }
+  .btn-primary:hover { background: var(--accent); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ghost { background: var(--panel-2); border-color: var(--border); color: var(--text); }
+  .nav-row { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; }
+  .bar-bg { width: 100%; height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; margin-bottom: 10px; }
+  .bar-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.35s ease; }
+  .status-line { font-size: 0.88rem; font-weight: 500; margin-bottom: 14px; color: var(--text); }
+  .log {
+    background: #08080B; border: 1px solid var(--border); border-radius: 10px;
+    padding: 13px; height: 220px; overflow-y: auto; font-size: 0.79rem; color: var(--muted);
+    font-family: ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
+  }
+  .alert { border-radius: 10px; padding: 12px 14px; font-size: 0.85rem; margin-bottom: 16px; display: none; }
+  .alert-err { background: rgba(229, 72, 77, 0.12); border: 1px solid var(--err); color: #FF8B8E; }
+  .done-box {
+    background: rgba(48, 164, 108, 0.1); border: 1px solid var(--ok); border-radius: 10px;
+    padding: 16px; margin-top: 16px; display: none;
+  }
+  .done-box h3 { font-size: 1rem; color: #6BD99E; margin-bottom: 6px; }
+  .copy-row { display: flex; gap: 8px; margin-top: 8px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><span class="dot"></span> CDM Installer — Google Cloud</div>
+    <button class="btn btn-ghost" style="padding:6px 12px;font-size:0.78rem" onclick="quitInstaller()">Close</button>
+  </div>
+
+  <div class="wprog">
+    <i id="p1" class="on"></i>
+    <i id="p2"></i>
+    <i id="p3"></i>
+  </div>
+
+  <div id="errBox" class="alert alert-err"></div>
+
+  <!-- STEP 1 -->
+  <div id="step1" class="card">
+    <h2>Connect your Google Cloud account</h2>
+    <p class="lede">Upload your Google Cloud Service Account JSON key and pick where CDM should run.</p>
+
+    <div class="field">
+      <label>Google Cloud Service Account Key (.json)</label>
+      <div class="file-box">
+        <span id="keyStatus" class="file-status">Select your .json key file (auto-fills Project ID)</span>
+        <label class="btn btn-ghost" style="padding:7px 14px;font-size:0.82rem;margin:0;color:var(--text)">
+          Choose .json file
+          <input id="keyFile" type="file" accept=".json,application/json" style="display:none" onchange="handleKeyUpload(this)">
+        </label>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="field">
+        <label>Google Cloud Project ID</label>
+        <input id="project_id" placeholder="my-company-prod">
+      </div>
+      <div class="field">
+        <label>Region</label>
+        <select id="region">
+          ${REGIONS.map((r) => `<option value="${r.id}">${r.label}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="nav-row">
+      <span style="font-size:0.78rem;color:var(--muted)">Sets up Cloud Run + PostgreSQL 16 automatically</span>
+      <button class="btn btn-primary" onclick="goStep(2)">Next →</button>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div id="step2" class="card hidden">
+    <h2>Enter your CDM keys</h2>
+    <p class="lede">CDM stores these securely inside your own Google Cloud Secret Manager.</p>
+
+    <div class="grid2">
+      <div class="field">
+        <label>Google Sign-In Client ID *</label>
+        <input id="google_client_id" placeholder="xxxx.apps.googleusercontent.com">
+      </div>
+      <div class="field">
+        <label>Google Sign-In Client Secret *</label>
+        <input id="google_client_secret" type="password" placeholder="GOCSPX-...">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Gemini API Key *</label>
+      <input id="gemini_api_key" type="password" placeholder="AIza...">
+    </div>
+
+    <div class="grid2">
+      <div class="field">
+        <label>Skribby Bot Key (optional)</label>
+        <input id="skribby_api_key" type="password" placeholder="For Google Meet call bot">
+      </div>
+      <div class="field">
+        <label>Slack Webhook URL (optional)</label>
+        <input id="slack_webhook_url" type="password" placeholder="https://hooks.slack.com/...">
+      </div>
+    </div>
+
+    <div class="nav-row">
+      <button class="btn btn-ghost" onclick="goStep(1)">← Back</button>
+      <button class="btn btn-primary" onclick="startInstall()">Install &amp; Launch CDM →</button>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div id="step3" class="card hidden">
+    <h2 id="step3Title">Installing CDM on Google Cloud</h2>
+    <p class="lede">Setting up your database, secrets, and live CDM web app. First-time database creation takes ~5–8 minutes.</p>
+
+    <div class="bar-bg"><div id="barFill" class="bar-fill"></div></div>
+    <div id="statusText" class="status-line">Starting...</div>
+    <div id="logBox" class="log"></div>
+
+    <div id="doneBox" class="done-box">
+      <h3>CDM is live!</h3>
+      <p style="font-size:0.84rem;color:var(--muted);margin-bottom:8px">
+        Add this Authorized Redirect URI in your Google Cloud OAuth Client so Sign-In works:
+      </p>
+      <div class="copy-row">
+        <input id="callbackUrl" readonly>
+        <button class="btn btn-ghost" onclick="copyCallback()">Copy</button>
+      </div>
+      <div class="nav-row" style="margin-top:14px">
+        <span style="font-size:0.82rem;color:var(--muted)" id="liveUrlLabel"></span>
+        <button class="btn btn-primary" onclick="openLiveApp()">Open CDM App →</button>
+      </div>
+    </div>
+
+    <div id="retryRow" class="nav-row hidden">
+      <button class="btn btn-ghost" onclick="goStep(2)">← Edit Keys</button>
+      <button class="btn btn-primary" onclick="startInstall()">Retry Install</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN = ${JSON.stringify(sessionToken)};
+let serviceAccountRaw = '';
+let liveAppUrl = '';
+let pollTimer = null;
+let logOffset = 0;
+
+function showErr(msg) {
+  const b = document.getElementById('errBox');
+  b.textContent = msg || '';
+  b.style.display = msg ? 'block' : 'none';
+}
+
+function handleKeyUpload(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const text = String(reader.result || '');
+      const parsed = JSON.parse(text);
+      if (!parsed.client_email || !parsed.private_key) {
+        showErr('That JSON file is not a Google Cloud Service Account key.');
+        return;
+      }
+      showErr('');
+      serviceAccountRaw = text;
+      const st = document.getElementById('keyStatus');
+      st.textContent = '✓ ' + file.name + ' (' + parsed.client_email + ')';
+      st.classList.add('loaded');
+      if (parsed.project_id && !document.getElementById('project_id').value.trim()) {
+        document.getElementById('project_id').value = parsed.project_id;
+      }
+    } catch {
+      showErr('Could not parse JSON file.');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function goStep(n) {
+  showErr('');
+  if (n === 2) {
+    const pid = document.getElementById('project_id').value.trim();
+    if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(pid)) {
+      showErr('Enter your Google Cloud Project ID (for example: my-company-prod).');
+      return;
+    }
+  }
+  for (let i = 1; i <= 3; i++) {
+    document.getElementById('step' + i).classList.toggle('hidden', i !== n);
+    document.getElementById('p' + i).classList.toggle('on', i <= n);
   }
 }
+
+async function postApi(route, payload) {
+  const res = await fetch(route, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CDM-Token': TOKEN },
+    body: JSON.stringify(payload || {})
+  });
+  return res.json();
+}
+
+async function startInstall() {
+  showErr('');
+  const payload = {
+    project_id: document.getElementById('project_id').value.trim(),
+    region: document.getElementById('region').value,
+    service_account_json: serviceAccountRaw,
+    google_client_id: document.getElementById('google_client_id').value.trim(),
+    google_client_secret: document.getElementById('google_client_secret').value.trim(),
+    gemini_api_key: document.getElementById('gemini_api_key').value.trim(),
+    skribby_api_key: document.getElementById('skribby_api_key').value.trim(),
+    slack_webhook_url: document.getElementById('slack_webhook_url').value.trim()
+  };
+
+  if (!payload.google_client_id || !payload.google_client_secret || !payload.gemini_api_key) {
+    showErr('Please fill in Google Sign-In Client ID, Client Secret, and Gemini API Key.');
+    return;
+  }
+
+  const res = await postApi('/api/install', payload);
+  if (!res.ok) {
+    showErr(res.error || 'Could not start installation.');
+    return;
+  }
+
+  logOffset = 0;
+  document.getElementById('logBox').textContent = '';
+  document.getElementById('barFill').style.width = '5%';
+  document.getElementById('doneBox').style.display = 'none';
+  document.getElementById('retryRow').classList.add('hidden');
+  document.getElementById('step3Title').textContent = 'Installing CDM on Google Cloud';
+  goStep(3);
+
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(pollStatus, 600);
+}
+
+async function pollStatus() {
+  try {
+    const res = await fetch('/api/status?offset=' + logOffset, { headers: { 'X-CDM-Token': TOKEN } });
+    const data = await res.json();
+    if (data.statusText) document.getElementById('statusText').textContent = data.statusText;
+    if (typeof data.progress === 'number') {
+      document.getElementById('barFill').style.width = data.progress + '%';
+    }
+    if (data.lines && data.lines.length) {
+      const log = document.getElementById('logBox');
+      log.textContent += data.lines.join('\\n') + '\\n';
+      log.scrollTop = log.scrollHeight;
+      logOffset = data.nextOffset;
+    }
+    if (!data.running) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      if (data.error) {
+        showErr(data.error);
+        document.getElementById('retryRow').classList.remove('hidden');
+      } else if (data.serviceUrl) {
+        liveAppUrl = data.serviceUrl;
+        document.getElementById('step3Title').textContent = 'CDM Installed Successfully';
+        document.getElementById('callbackUrl').value = liveAppUrl.replace(/\\/$/, '') + '/api/auth/callback/google';
+        document.getElementById('liveUrlLabel').textContent = liveAppUrl;
+        document.getElementById('doneBox').style.display = 'block';
+      }
+    }
+  } catch (_) {}
+}
+
+function copyCallback() {
+  const input = document.getElementById('callbackUrl');
+  navigator.clipboard.writeText(input.value);
+}
+
+function openLiveApp() {
+  if (liveAppUrl) postApi('/api/open-url', { url: liveAppUrl });
+}
+
+async function quitInstaller() {
+  try { await postApi('/api/quit', {}); } catch (_) {}
+  window.close();
+}
+</script>
+</body>
+</html>`;
+}
+
+function startInstallerGui() {
+  const token = crypto.randomBytes(24).toString('hex');
+  const html = buildInstallerHtml(token);
+  const state = {
+    running: false,
+    progress: 0,
+    statusText: 'Ready',
+    logs: [],
+    error: null,
+    serviceUrl: null
+  };
+
+  const server = http.createServer((req, res) => {
+    const parsed = new URL(req.url || '/', 'http://127.0.0.1');
+    if (req.method === 'GET' && parsed.pathname === '/') {
+      if (parsed.searchParams.get('token') !== token) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end('Forbidden');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(html);
+      return;
+    }
+
+    if (req.headers['x-cdm-token'] !== token) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Unauthorized' }));
+      return;
+    }
+
+    if (req.method === 'GET' && parsed.pathname === '/api/status') {
+      const offset = Math.max(0, Number(parsed.searchParams.get('offset') || 0));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        running: state.running,
+        progress: state.progress,
+        statusText: state.statusText,
+        lines: state.logs.slice(offset),
+        nextOffset: state.logs.length,
+        error: state.error,
+        serviceUrl: state.serviceUrl
+      }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', (chunk) => { if (body.length < 262144) body += chunk.toString('utf8'); });
+    req.on('end', () => {
+      let json = {};
+      try { json = body ? JSON.parse(body) : {}; } catch (_) {}
+
+      if (parsed.pathname === '/api/open-url') {
+        if (json.url && String(json.url).startsWith('https://')) {
+          openExternalUrl(String(json.url), false);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+
+      if (parsed.pathname === '/api/quit') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        setTimeout(() => process.exit(0), 200);
+        return;
+      }
+
+      if (parsed.pathname === '/api/install') {
+        if (state.running) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Installation is already in progress.' }));
+          return;
+        }
+        state.running = true;
+        state.progress = 5;
+        state.statusText = 'Starting installation...';
+        state.logs = [];
+        state.error = null;
+        state.serviceUrl = null;
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+
+        deployCdmApplication(json, ({ progress, status, line }) => {
+          if (typeof progress === 'number') state.progress = progress;
+          if (status) state.statusText = status;
+          if (line) {
+            state.logs.push(line);
+            console.log(line);
+          }
+        })
+          .then((url) => {
+            state.serviceUrl = url;
+            state.progress = 100;
+            state.statusText = 'CDM is live!';
+          })
+          .catch((err) => {
+            state.error = err.message || 'Installation stopped.';
+            state.statusText = 'Installation stopped';
+            state.logs.push(`✗ ${state.error}`);
+          })
+          .finally(() => {
+            state.running = false;
+          });
+        return;
+      }
+
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Not found' }));
+    });
+  });
+
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      const url = `http://127.0.0.1:${addr.port}/?token=${token}`;
+      console.log('\nCDM — Google Cloud Installer');
+      console.log('Opening installer window... (keep this background process running until install finishes)');
+      const opened = openExternalUrl(url, true);
+      if (!opened) {
+        server.close(() => resolve(false));
+      } else {
+        resolve(true);
+      }
+    });
+  });
+}
+
+// Optional --cli terminal mode for headless servers
+async function runDirectCli() {
+  const rl = require('node:readline').createInterface({ input: stdin, output: stdout });
+  const ask = (q, def = '') => new Promise((r) => rl.question(def ? `${q} [${def}]: ` : `${q}: `, (a) => r(a.trim() || def)));
+  try {
+    console.log('\n=== CDM — Install on Google Cloud ===\n');
+    const keyPath = await ask('Path to Service Account JSON key (or Enter if already signed in)');
+    let service_account_json = '';
+    let detectedProject = '';
+    if (keyPath) {
+      service_account_json = fs.readFileSync(keyPath, 'utf8');
+      try { detectedProject = JSON.parse(service_account_json).project_id || ''; } catch (_) {}
+    }
+    const project_id = await ask('Google Cloud Project ID', detectedProject);
+    const region = await ask('Region', 'us-central1');
+    const google_client_id = await ask('Google Sign-In Client ID');
+    const google_client_secret = await ask('Google Sign-In Client Secret');
+    const gemini_api_key = await ask('Gemini API Key');
+    const skribby_api_key = await ask('Skribby API Key (optional)');
+    const slack_webhook_url = await ask('Slack Webhook URL (optional)');
+    rl.close();
+
+    const liveUrl = await deployCdmApplication(
+      { project_id, region, service_account_json, google_client_id, google_client_secret, gemini_api_key, skribby_api_key, slack_webhook_url },
+      ({ line }) => { if (line) console.log(line); }
+    );
+    console.log(`\n✓ CDM is live: ${liveUrl}`);
+    console.log(`Add this Google OAuth Redirect URI: ${liveUrl}/api/auth/callback/google`);
+  } finally {
+    rl.close();
+  }
+}
+
 function pauseAndExit(code = 0) {
   process.exitCode = code;
   if (process.platform === 'win32' && !process.env.CI && process.env.CDM_GCP_NO_PAUSE !== '1') {
     try {
-      if (stdin.isTTY) {
-        try { stdin.setRawMode(false); } catch (_) {}
-      }
-      stdout.write('\nPress Enter to close this window...');
+      stdout.write('\nPress Enter to close...');
       const buf = Buffer.alloc(1);
-      try { fs.readSync(0, buf, 0, 1, null); } catch (_) {}
+      fs.readSync(0, buf, 0, 1, null);
     } catch (_) {}
   }
   process.exit(code);
 }
 
 if (process.argv.includes('--self-test')) {
-  const required = ['main.tf', 'variables.tf', 'outputs.tf', 'versions.tf', '.gitignore'];
-  const missing = required.filter((name) => !embedded[name] && !fs.existsSync(path.join(__dirname, name)));
-  if (missing.length) {
+  const missing = ASSET_NAMES.filter((name) => !embedded[name] && !fs.existsSync(path.join(__dirname, name)));
+  const html = buildInstallerHtml('test-token');
+  if (missing.length || !html.includes('CDM Installer — Google Cloud')) {
     console.error(`Bundle self-test failed: missing ${missing.join(', ')}`);
     process.exitCode = 2;
   } else {
-    console.log(`Bundle self-test passed: CLI and ${required.length} Terraform support files are present.`);
+    console.log(`Bundle self-test passed: CDM Google Cloud Installer and ${ASSET_NAMES.length} support files are present.`);
   }
-} else {
-  main()
-    .then(() => pauseAndExit(process.exitCode || 0))
+} else if (process.argv.includes('--deploy-json')) {
+  const idx = process.argv.indexOf('--deploy-json');
+  const configFile = process.argv[idx + 1];
+  (async () => {
+    if (!configFile || !fs.existsSync(configFile)) {
+      throw new Error('Deployment configuration file was not provided.');
+    }
+    const rawConfig = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+    try { fs.unlinkSync(configFile); } catch (_) {}
+    const serviceUrl = await deployCdmApplication(rawConfig, (evt) => {
+      stdout.write(`CDM_EVENT:${JSON.stringify(evt)}\n`);
+    });
+    stdout.write(`CDM_RESULT:${JSON.stringify({ ok: true, serviceUrl })}\n`);
+  })().catch((e) => {
+    stdout.write(`CDM_RESULT:${JSON.stringify({ ok: false, error: e.message || String(e) })}\n`);
+    process.exit(1);
+  });
+} else if (process.argv.includes('--cli')) {
+  runDirectCli()
+    .then(() => pauseAndExit(0))
     .catch((e) => {
-      console.error(`\nSetup stopped: ${e.message}`);
+      console.error(`\nInstall stopped: ${e.message}`);
+      pauseAndExit(1);
+    });
+} else {
+  startInstallerGui()
+    .then((opened) => {
+      if (!opened) return runDirectCli().then(() => pauseAndExit(0));
+    })
+    .catch((e) => {
+      console.error(`\nInstall stopped: ${e.message}`);
       pauseAndExit(1);
     });
 }
