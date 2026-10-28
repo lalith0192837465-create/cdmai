@@ -191,11 +191,13 @@ function prepareWorkspace(raw) {
   if (!/^[a-z]+-[a-z0-9]+[0-9]$/.test(region)) {
     throw new Error('Choose a valid Google Cloud region.');
   }
+  const adminEmail = String(raw.admin_email || '').trim().toLowerCase();
+  const adminPassword = String(raw.admin_password || '');
   const googleClientId = String(raw.google_client_id || '').trim();
   const googleClientSecret = String(raw.google_client_secret || '').trim();
   const geminiApiKey = String(raw.gemini_api_key || '').trim();
-  if (!googleClientId) throw new Error('Google Sign-In Client ID is required.');
-  if (!googleClientSecret) throw new Error('Google Sign-In Client Secret is required.');
+  if (!adminEmail || !adminEmail.includes('@')) throw new Error('Enter a valid Workspace Admin Email.');
+  if (adminPassword.length < 8) throw new Error('Workspace Admin Password must be at least 8 characters.');
   if (!geminiApiKey) throw new Error('Gemini API Key is required.');
 
   const workDir = path.join(getAppDataBase(), 'deployments', project);
@@ -247,6 +249,8 @@ function prepareWorkspace(raw) {
     allow_public_ingress: true,
     allow_unauthenticated: true,
     nextauth_secret: nextauthSecret,
+    admin_email: adminEmail,
+    admin_password: adminPassword,
     google_client_id: googleClientId,
     google_client_secret: googleClientSecret,
     gemini_api_key: geminiApiKey,
@@ -343,9 +347,9 @@ async function deployCdmApplication(rawConfig, onEvent) {
   if (serviceUrl && serviceUrl.startsWith('https://') && settings.app_url !== serviceUrl) {
     settings.app_url = serviceUrl;
     writeTfvars(workDir, settings);
-    emit(90, 'Finalizing Google Sign-In URL...', `Linking live URL ${serviceUrl} to CDM...`);
+    emit(90, 'Finalizing live workspace URL...', `Linking live URL ${serviceUrl} to CDM...`);
     await runStreaming('terraform', ['apply', '-input=false', '-auto-approve', '-no-color'], workDir, extraEnv, (l) => {
-      if (/Modifying|Apply complete/i.test(l)) emit(95, 'Finalizing Google Sign-In URL...', l);
+      if (/Modifying|Apply complete/i.test(l)) emit(95, 'Finalizing live workspace URL...', l);
     });
   }
 
@@ -355,26 +359,60 @@ async function deployCdmApplication(rawConfig, onEvent) {
   return serviceUrl;
 }
 
-function openExternalUrl(url, appWindowMode = false) {
+function openWindowsDefaultBrowser(url) {
+  const r = spawnSync('rundll32.exe', ['url.dll,FileProtocolHandler', url], { windowsHide: true });
+  if (r.status === 0) return true;
+  const c = spawnSync('cmd.exe', ['/c', 'start', '', `"${url}"`], { windowsHide: true });
+  return c.status === 0;
+}
+
+function openExternalUrl(url, appWindowMode = false, hooks = {}) {
   if (process.platform === 'win32') {
     if (appWindowMode) {
-      const edgePaths = [
+      const candidates = [
         path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Microsoft\\Edge\\Application\\msedge.exe'),
         path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Microsoft\\Edge\\Application\\msedge.exe'),
-        path.join(process.env.LOCALAPPDATA || '', 'Microsoft\\Edge\\Application\\msedge.exe')
+        path.join(process.env.LOCALAPPDATA || '', 'Microsoft\\Edge\\Application\\msedge.exe'),
+        path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Google\\Chrome\\Application\\chrome.exe'),
+        path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Google\\Chrome\\Application\\chrome.exe'),
+        path.join(process.env.LOCALAPPDATA || '', 'Google\\Chrome\\Application\\chrome.exe')
       ];
-      for (const edge of edgePaths) {
-        if (edge && fs.existsSync(edge)) {
+      for (const browserExe of candidates) {
+        if (browserExe && fs.existsSync(browserExe)) {
           try {
-            const child = spawn(edge, [`--app=${url}`, '--window-size=740,800'], { detached: true, stdio: 'ignore', windowsHide: false });
+            const profileDir = path.join(getAppDataBase(), 'ui-profile-gcp');
+            fs.mkdirSync(profileDir, { recursive: true });
+            const launchedAt = Date.now();
+            const child = spawn(
+              browserExe,
+              [
+                `--app=${url}`,
+                '--window-size=760,840',
+                `--user-data-dir=${profileDir}`,
+                '--no-first-run',
+                '--no-default-browser-check',
+                '--disable-features=msImplicitSignin,msEdgeSidebarV2'
+              ],
+              { detached: true, stdio: 'ignore', windowsHide: false }
+            );
+            child.on('error', () => {
+              openWindowsDefaultBrowser(url);
+            });
+            child.on('close', () => {
+              const livedMs = Date.now() - launchedAt;
+              if (hooks.isUiLoaded && !hooks.isUiLoaded() && livedMs < 3000) {
+                openWindowsDefaultBrowser(url);
+              } else if (hooks.onAppWindowClosed && livedMs >= 3000) {
+                hooks.onAppWindowClosed();
+              }
+            });
             child.unref();
             return true;
           } catch (_) {}
         }
       }
     }
-    const res = spawnSync('cmd.exe', ['/c', 'start', '', url], { windowsHide: true });
-    return res.status === 0;
+    return openWindowsDefaultBrowser(url);
   }
   if (process.platform === 'darwin') {
     return spawnSync('open', [url]).status === 0;
@@ -453,6 +491,14 @@ function buildInstallerHtml(sessionToken) {
   }
   .done-box h3 { font-size: 1rem; color: #6BD99E; margin-bottom: 6px; }
   .copy-row { display: flex; gap: 8px; margin-top: 8px; }
+  .opt-details {
+    margin-top: 6px; margin-bottom: 14px; border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px; background: #0E0E12;
+  }
+  .opt-details summary {
+    cursor: pointer; font-size: 0.83rem; color: var(--muted); font-weight: 500; user-select: none;
+  }
+  .opt-details[open] summary { margin-bottom: 12px; color: var(--text); }
   .hidden { display: none; }
 </style>
 </head>
@@ -508,17 +554,17 @@ function buildInstallerHtml(sessionToken) {
 
   <!-- STEP 2 -->
   <div id="step2" class="card hidden">
-    <h2>Enter your CDM keys</h2>
-    <p class="lede">CDM stores these securely inside your own Google Cloud Secret Manager.</p>
+    <h2>Create your admin login &amp; keys</h2>
+    <p class="lede">Sign in immediately with your email and password once deployed. Everything is stored encrypted inside your own Google Cloud Secret Manager.</p>
 
     <div class="grid2">
       <div class="field">
-        <label>Google Sign-In Client ID *</label>
-        <input id="google_client_id" placeholder="xxxx.apps.googleusercontent.com">
+        <label>Workspace Admin Email *</label>
+        <input id="admin_email" type="email" placeholder="admin@company.com">
       </div>
       <div class="field">
-        <label>Google Sign-In Client Secret *</label>
-        <input id="google_client_secret" type="password" placeholder="GOCSPX-...">
+        <label>Workspace Admin Password * (8+ chars)</label>
+        <input id="admin_password" type="password" placeholder="Create a strong password">
       </div>
     </div>
 
@@ -530,13 +576,27 @@ function buildInstallerHtml(sessionToken) {
     <div class="grid2">
       <div class="field">
         <label>Skribby Bot Key (optional)</label>
-        <input id="skribby_api_key" type="password" placeholder="For Google Meet call bot">
+        <input id="skribby_api_key" type="password" placeholder="For Meet, Zoom &amp; Teams bot">
       </div>
       <div class="field">
         <label>Slack Webhook URL (optional)</label>
         <input id="slack_webhook_url" type="password" placeholder="https://hooks.slack.com/...">
       </div>
     </div>
+
+    <details class="opt-details">
+      <summary>Optional: Enable Google Sign-In (SSO)</summary>
+      <div class="grid2">
+        <div class="field" style="margin-bottom:0">
+          <label>Google Client ID (optional)</label>
+          <input id="google_client_id" placeholder="xxxx.apps.googleusercontent.com">
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Google Client Secret (optional)</label>
+          <input id="google_client_secret" type="password" placeholder="GOCSPX-...">
+        </div>
+      </div>
+    </details>
 
     <div class="nav-row">
       <button class="btn btn-ghost" onclick="goStep(1)">← Back</button>
@@ -554,13 +614,18 @@ function buildInstallerHtml(sessionToken) {
     <div id="logBox" class="log"></div>
 
     <div id="doneBox" class="done-box">
-      <h3>CDM is live!</h3>
+      <h3>CDM is live on Google Cloud!</h3>
       <p style="font-size:0.84rem;color:var(--muted);margin-bottom:8px">
-        Add this Authorized Redirect URI in your Google Cloud OAuth Client so Sign-In works:
+        Open your workspace and sign in with your Workspace Admin Email and Password.
       </p>
-      <div class="copy-row">
-        <input id="callbackUrl" readonly>
-        <button class="btn btn-ghost" onclick="copyCallback()">Copy</button>
+      <div id="oauthHint" class="hidden" style="margin-top:10px;margin-bottom:6px">
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:6px">
+          Since you added Google SSO keys, add this Authorized Redirect URI in Google Cloud:
+        </p>
+        <div class="copy-row">
+          <input id="callbackUrl" readonly>
+          <button class="btn btn-ghost" onclick="copyCallback()">Copy</button>
+        </div>
       </div>
       <div class="nav-row" style="margin-top:14px">
         <span style="font-size:0.82rem;color:var(--muted)" id="liveUrlLabel"></span>
@@ -645,6 +710,8 @@ async function startInstall() {
     project_id: document.getElementById('project_id').value.trim(),
     region: document.getElementById('region').value,
     service_account_json: serviceAccountRaw,
+    admin_email: document.getElementById('admin_email').value.trim(),
+    admin_password: document.getElementById('admin_password').value,
     google_client_id: document.getElementById('google_client_id').value.trim(),
     google_client_secret: document.getElementById('google_client_secret').value.trim(),
     gemini_api_key: document.getElementById('gemini_api_key').value.trim(),
@@ -652,8 +719,16 @@ async function startInstall() {
     slack_webhook_url: document.getElementById('slack_webhook_url').value.trim()
   };
 
-  if (!payload.google_client_id || !payload.google_client_secret || !payload.gemini_api_key) {
-    showErr('Please fill in Google Sign-In Client ID, Client Secret, and Gemini API Key.');
+  if (!payload.admin_email || !payload.admin_email.includes('@')) {
+    showErr('Please enter a valid Workspace Admin Email.');
+    return;
+  }
+  if (!payload.admin_password || payload.admin_password.length < 8) {
+    showErr('Workspace Admin Password must be at least 8 characters.');
+    return;
+  }
+  if (!payload.gemini_api_key) {
+    showErr('Please enter your Gemini API Key.');
     return;
   }
 
@@ -698,6 +773,8 @@ async function pollStatus() {
       } else if (data.serviceUrl) {
         liveAppUrl = data.serviceUrl;
         document.getElementById('step3Title').textContent = 'CDM Installed Successfully';
+        const hasG = Boolean(document.getElementById('google_client_id').value.trim());
+        document.getElementById('oauthHint').classList.toggle('hidden', !hasG);
         document.getElementById('callbackUrl').value = liveAppUrl.replace(/\\/$/, '') + '/api/auth/callback/google';
         document.getElementById('liveUrlLabel').textContent = liveAppUrl;
         document.getElementById('doneBox').style.display = 'block';
@@ -728,6 +805,7 @@ function startInstallerGui() {
   const token = crypto.randomBytes(24).toString('hex');
   const html = buildInstallerHtml(token);
   const state = {
+    uiLoaded: false,
     running: false,
     progress: 0,
     statusText: 'Ready',
@@ -744,6 +822,7 @@ function startInstallerGui() {
         res.end('Forbidden');
         return;
       }
+      state.uiLoaded = true;
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(html);
       return;
@@ -844,7 +923,14 @@ function startInstallerGui() {
       const url = `http://127.0.0.1:${addr.port}/?token=${token}`;
       console.log('\nCDM — Google Cloud Installer');
       console.log('Opening installer window... (keep this background process running until install finishes)');
-      const opened = openExternalUrl(url, true);
+      const opened = openExternalUrl(url, true, {
+        isUiLoaded: () => state.uiLoaded,
+        onAppWindowClosed: () => {
+          if (!state.running) {
+            setTimeout(() => process.exit(0), 250);
+          }
+        }
+      });
       if (!opened) {
         server.close(() => resolve(false));
       } else {
@@ -869,19 +955,23 @@ async function runDirectCli() {
     }
     const project_id = await ask('Google Cloud Project ID', detectedProject);
     const region = await ask('Region', 'us-central1');
-    const google_client_id = await ask('Google Sign-In Client ID');
-    const google_client_secret = await ask('Google Sign-In Client Secret');
+    const admin_email = await ask('Workspace Admin Email (e.g. admin@company.com)');
+    const admin_password = await ask('Workspace Admin Password (8+ chars)');
     const gemini_api_key = await ask('Gemini API Key');
     const skribby_api_key = await ask('Skribby API Key (optional)');
     const slack_webhook_url = await ask('Slack Webhook URL (optional)');
+    const google_client_id = await ask('Google Sign-In Client ID (optional)');
+    const google_client_secret = google_client_id ? await ask('Google Sign-In Client Secret') : '';
     rl.close();
 
     const liveUrl = await deployCdmApplication(
-      { project_id, region, service_account_json, google_client_id, google_client_secret, gemini_api_key, skribby_api_key, slack_webhook_url },
+      { project_id, region, service_account_json, admin_email, admin_password, google_client_id, google_client_secret, gemini_api_key, skribby_api_key, slack_webhook_url },
       ({ line }) => { if (line) console.log(line); }
     );
     console.log(`\n✓ CDM is live: ${liveUrl}`);
-    console.log(`Add this Google OAuth Redirect URI: ${liveUrl}/api/auth/callback/google`);
+    if (google_client_id) {
+      console.log(`Add this Google OAuth Redirect URI: ${liveUrl}/api/auth/callback/google`);
+    }
   } finally {
     rl.close();
   }
@@ -898,6 +988,16 @@ function pauseAndExit(code = 0) {
   }
   process.exit(code);
 }
+
+process.on('uncaughtException', (err) => {
+  console.error('\nUnexpected error:', err && err.message ? err.message : err);
+  pauseAndExit(1);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('\nUnexpected error:', err && err.message ? err.message : err);
+  pauseAndExit(1);
+});
 
 if (process.argv.includes('--self-test')) {
   const missing = ASSET_NAMES.filter((name) => !embedded[name] && !fs.existsSync(path.join(__dirname, name)));

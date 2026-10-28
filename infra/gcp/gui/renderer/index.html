@@ -58,17 +58,17 @@
     </div>
 
     <div id="step2" class="card hidden">
-      <h2>Enter your CDM keys</h2>
-      <p class="lede">CDM stores these securely inside your own Google Cloud Secret Manager.</p>
+      <h2>Create your admin login &amp; keys</h2>
+      <p class="lede">Sign in immediately with your email and password once deployed. Everything is stored encrypted inside your own Google Cloud Secret Manager.</p>
 
       <div class="grid2">
         <div class="field">
-          <label>Google Sign-In Client ID *</label>
-          <input id="google_client_id" placeholder="xxxx.apps.googleusercontent.com">
+          <label>Workspace Admin Email *</label>
+          <input id="admin_email" type="email" placeholder="admin@company.com">
         </div>
         <div class="field">
-          <label>Google Sign-In Client Secret *</label>
-          <input id="google_client_secret" type="password" placeholder="GOCSPX-...">
+          <label>Workspace Admin Password * (8+ chars)</label>
+          <input id="admin_password" type="password" placeholder="Create a strong password">
         </div>
       </div>
 
@@ -80,13 +80,27 @@
       <div class="grid2">
         <div class="field">
           <label>Skribby Bot Key (optional)</label>
-          <input id="skribby_api_key" type="password" placeholder="For Google Meet call bot">
+          <input id="skribby_api_key" type="password" placeholder="For Meet, Zoom &amp; Teams bot">
         </div>
         <div class="field">
           <label>Slack Webhook URL (optional)</label>
           <input id="slack_webhook_url" type="password" placeholder="https://hooks.slack.com/...">
         </div>
       </div>
+
+      <details class="opt-details">
+        <summary>Optional: Enable Google Sign-In (SSO)</summary>
+        <div class="grid2">
+          <div class="field field-compact">
+            <label>Google Client ID (optional)</label>
+            <input id="google_client_id" placeholder="xxxx.apps.googleusercontent.com">
+          </div>
+          <div class="field field-compact">
+            <label>Google Client Secret (optional)</label>
+            <input id="google_client_secret" type="password" placeholder="GOCSPX-...">
+          </div>
+        </div>
+      </details>
 
       <div class="nav-row">
         <button id="backToStep1" class="btn btn-ghost" type="button">← Back</button>
@@ -103,11 +117,14 @@
       <div id="logBox" class="log"></div>
 
       <div id="doneBox" class="done-box">
-        <h3>CDM is live!</h3>
-        <p class="file-status">Add this Authorized Redirect URI in your Google Cloud OAuth Client so Sign-In works:</p>
-        <div class="copy-row">
-          <input id="callbackUrl" readonly>
-          <button id="copyBtn" class="btn btn-ghost" type="button">Copy</button>
+        <h3>CDM is live on Google Cloud!</h3>
+        <p class="file-status">Open your workspace and sign in with your Workspace Admin Email and Password.</p>
+        <div id="oauthHint" class="oauth-hint hidden">
+          <p class="file-status">Since you added Google SSO keys, add this Authorized Redirect URI in Google Cloud:</p>
+          <div class="copy-row">
+            <input id="callbackUrl" readonly>
+            <button id="copyBtn" class="btn btn-ghost" type="button">Copy</button>
+          </div>
         </div>
         <div class="nav-row">
           <span id="liveUrlLabel" class="file-status"></span>

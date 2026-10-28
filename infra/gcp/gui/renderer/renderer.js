@@ -51,6 +51,8 @@ async function beginInstall() {
     project_id: $("project_id").value.trim(),
     region: $("region").value,
     service_account_json: serviceAccountJson,
+    admin_email: $("admin_email").value.trim(),
+    admin_password: $("admin_password").value,
     google_client_id: $("google_client_id").value.trim(),
     google_client_secret: $("google_client_secret").value.trim(),
     gemini_api_key: $("gemini_api_key").value.trim(),
@@ -58,8 +60,16 @@ async function beginInstall() {
     slack_webhook_url: $("slack_webhook_url").value.trim(),
   };
 
-  if (!payload.google_client_id || !payload.google_client_secret || !payload.gemini_api_key) {
-    showErr("Please enter Google Sign-In Client ID, Client Secret, and Gemini API Key.");
+  if (!payload.admin_email || !payload.admin_email.includes("@")) {
+    showErr("Please enter a valid Workspace Admin Email.");
+    return;
+  }
+  if (!payload.admin_password || payload.admin_password.length < 8) {
+    showErr("Workspace Admin Password must be at least 8 characters.");
+    return;
+  }
+  if (!payload.gemini_api_key) {
+    showErr("Please enter your Gemini API Key.");
     return;
   }
 
@@ -105,6 +115,7 @@ window.cdm.onEvent((evt) => {
       $("barFill").style.width = "100%";
       $("statusText").textContent = "CDM is live!";
       $("step3Title").textContent = "CDM Installed Successfully";
+      $("oauthHint").classList.toggle("hidden", !Boolean($("google_client_id").value.trim()));
       $("callbackUrl").value = liveAppUrl.replace(/\/$/, "") + "/api/auth/callback/google";
       $("liveUrlLabel").textContent = liveAppUrl;
       $("doneBox").style.display = "block";

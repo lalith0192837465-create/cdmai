@@ -1,0 +1,48 @@
+{
+  "name": "cdm-azure",
+  "version": "1.2.4",
+  "private": true,
+  "description": "CDM Azure direct application installer",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "ai.cdm.azure",
+    "productName": "CDM Azure",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "azure-cli.exe",
+        "to": "azure-cli.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "CDM-Azure-Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "CDM-Azure-Setup.${ext}"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

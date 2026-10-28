@@ -12,8 +12,10 @@ variable "deletion_protection" { type = bool description = "Protect production s
 variable "allow_public_ingress" { type = bool description = "Allow traffic from the internet to reach Cloud Run (IAM authorization is separate)" default = true }
 variable "allow_unauthenticated" { type = bool description = "Allow unauthenticated requests at Cloud Run layer; customer must separately review app route access" default = true }
 variable "nextauth_secret" { type = string sensitive = true description = "Customer-generated NextAuth session secret" }
-variable "google_client_id" { type = string sensitive = true description = "Google OAuth client ID" }
-variable "google_client_secret" { type = string sensitive = true description = "Google OAuth client secret" }
+variable "admin_email" { type = string sensitive = true description = "Workspace admin login email" }
+variable "admin_password" { type = string sensitive = true description = "Workspace admin login password" }
+variable "google_client_id" { type = string sensitive = true description = "Optional Google OAuth client ID" default = "" }
+variable "google_client_secret" { type = string sensitive = true description = "Optional Google OAuth client secret" default = "" }
 variable "gemini_api_key" { type = string sensitive = true description = "Gemini API key" }
 variable "anthropic_api_key" { type = string sensitive = true description = "Anthropic API key (may be empty if unused)" default = "" }
 variable "skribby_api_key" { type = string sensitive = true description = "Skribby API key (may be empty if unused)" default = "" }

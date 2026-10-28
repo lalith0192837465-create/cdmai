@@ -38,20 +38,66 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build cloud deployment packages
         run: |
-          rm -rf /tmp/cdm-packages && mkdir -p /tmp/cdm-packages/aws /tmp/cdm-packages/gcp
+          rm -rf /tmp/cdm-packages && mkdir -p /tmp/cdm-packages/aws /tmp/cdm-packages/gcp /tmp/cdm-packages/azure
           cp -R infra/aws/. /tmp/cdm-packages/aws/
           cp -R infra/gcp/. /tmp/cdm-packages/gcp/
+          cp -R infra/azure/. /tmp/cdm-packages/azure/
           printf 'CDM deployment package built from commit %s\n' "$GITHUB_SHA" > /tmp/cdm-packages/VERSION.txt
           cd /tmp/cdm-packages
-          zip -qr "$GITHUB_WORKSPACE/CDM-AWS-Setup.zip" aws VERSION.txt
+          zip -qr "$GITHUB_WORKSPACE/CDM-AWS-Terraform.zip" aws VERSION.txt
           zip -qr "$GITHUB_WORKSPACE/CDM-Google-Cloud-Setup.zip" gcp VERSION.txt
+          zip -qr "$GITHUB_WORKSPACE/CDM-Azure-Terraform.zip" azure VERSION.txt
       - name: Upload cloud packages
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            CDM-AWS-Setup.zip
+            CDM-AWS-Terraform.zip
             CDM-Google-Cloud-Setup.zip
+            CDM-Azure-Terraform.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  aws-windows-gui:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and self-test the AWS engine
+        shell: pwsh
+        run: |
+          npm install --global @yao-pkg/pkg@6.23.0
+          Set-Location infra/aws
+          node aws-cli.js --self-test
+          pkg --no-bytecode --public --public-packages '*' --target node22-win-x64 --output gui/aws-cli.exe aws-cli.js
+          if (!(Test-Path 'gui/aws-cli.exe') -or (Get-Item 'gui/aws-cli.exe').Length -lt 1000000) {
+            throw 'AWS deployment engine is missing or unexpectedly small.'
+          }
+      - name: Build portable single-window AWS Windows app
+        working-directory: infra/aws/gui
+        shell: pwsh
+        run: |
+          npm install
+          npm run dist:win
+          $installer = 'dist/CDM-AWS-Setup.exe'
+          if (!(Test-Path $installer) -or (Get-Item $installer).Length -lt 50000000) {
+            throw 'Portable AWS Windows app is missing or unexpectedly small.'
+          }
+      - name: Upload AWS GUI app as workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDM-AWS-Setup-Portable
+          path: infra/aws/gui/dist/CDM-AWS-Setup.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Attach AWS GUI app to tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: infra/aws/gui/dist/CDM-AWS-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -68,7 +114,7 @@ jobs:
           npm install --global @yao-pkg/pkg@6.23.0
           Set-Location infra/gcp
           node gcp-cli.js --self-test
-          pkg --target node22-win-x64 --output gui/gcp-cli.exe --public-packages '*' gcp-cli.js
+          pkg --no-bytecode --public --public-packages '*' --target node22-win-x64 --output gui/gcp-cli.exe gcp-cli.js
           if (!(Test-Path 'gui/gcp-cli.exe') -or (Get-Item 'gui/gcp-cli.exe').Length -lt 1000000) {
             throw 'GCP deployment engine is missing or unexpectedly small.'
           }
@@ -95,5 +141,48 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: infra/gcp/gui/dist/CDM-GCP-Setup.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  azure-windows-gui:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and self-test the Azure engine
+        shell: pwsh
+        run: |
+          npm install --global @yao-pkg/pkg@6.23.0
+          Set-Location infra/azure
+          node azure-cli.js --self-test
+          pkg --no-bytecode --public --public-packages '*' --target node22-win-x64 --output gui/azure-cli.exe azure-cli.js
+          if (!(Test-Path 'gui/azure-cli.exe') -or (Get-Item 'gui/azure-cli.exe').Length -lt 1000000) {
+            throw 'Azure deployment engine is missing or unexpectedly small.'
+          }
+      - name: Build portable single-window Azure Windows app
+        working-directory: infra/azure/gui
+        shell: pwsh
+        run: |
+          npm install
+          npm run dist:win
+          $installer = 'dist/CDM-Azure-Setup.exe'
+          if (!(Test-Path $installer) -or (Get-Item $installer).Length -lt 50000000) {
+            throw 'Portable Azure Windows app is missing or unexpectedly small.'
+          }
+      - name: Upload Azure GUI app as workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDM-Azure-Setup-Portable
+          path: infra/azure/gui/dist/CDM-Azure-Setup.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Attach Azure GUI app to tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: infra/azure/gui/dist/CDM-Azure-Setup.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

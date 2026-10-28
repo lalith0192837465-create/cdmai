@@ -108,11 +108,12 @@ locals {
   db_url = "postgresql://${google_sql_user.cdm.name}:${random_password.db_password.result}@/${google_sql_database.cdm.name}?host=/cloudsql/${var.project_id}:${var.region}:${google_sql_database_instance.postgres.name}"
 }
 
-# Secret Manager secrets
+# Secret Manager secrets (only non-empty secrets are created so optional keys never fail)
 locals {
-  secrets = {
-    DATABASE_URL         = local.db_url
+  user_secrets = {
     NEXTAUTH_SECRET      = var.nextauth_secret
+    ADMIN_EMAIL          = var.admin_email
+    ADMIN_PASSWORD       = var.admin_password
     GOOGLE_CLIENT_ID     = var.google_client_id
     GOOGLE_CLIENT_SECRET = var.google_client_secret
     GEMINI_API_KEY       = var.gemini_api_key
@@ -121,9 +122,12 @@ locals {
     SLACK_WEBHOOK_URL    = var.slack_webhook_url
     WEBHOOK_SECRET       = var.webhook_secret
     SKRIBBY_BASE_URL     = "https://platform.skribby.io/api/v1"
-    APP_URL              = var.app_url
     TEST_CALL_ENABLED    = "true"
   }
+  secrets = merge(
+    { DATABASE_URL = local.db_url },
+    { for k, v in local.user_secrets : k => v if nonsensitive(trimspace(v) != "") }
+  )
 }
 
 resource "google_secret_manager_secret" "app" {
@@ -141,10 +145,9 @@ resource "google_secret_manager_secret_version" "app" {
 
 # Grant Cloud Run service account access to secrets
 resource "google_project_iam_member" "secret_access" {
-  for_each = local.secrets
-  project  = var.project_id
-  role     = "roles/secretmanager.secretAccessor"
-  member   = "serviceAccount:${google_service_account.run.email}"
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.run.email}"
 }
 
 # Grant Cloud Run service account access to Cloud SQL
@@ -174,7 +177,7 @@ resource "google_cloud_run_v2_service" "app" {
   location             = var.region
   ingress              = var.allow_public_ingress ? "INGRESS_TRAFFIC_ALL" : "INGRESS_TRAFFIC_INTERNAL_ONLY"
   deletion_protection  = var.deletion_protection
-  depends_on           = [google_project_service.run, google_vpc_access_connector.connector, google_sql_database_instance.postgres]
+  depends_on           = [google_project_service.run, google_vpc_access_connector.connector, google_sql_database_instance.postgres, google_secret_manager_secret_version.app, google_project_iam_member.secret_access]
 
   template {
     service_account = google_service_account.run.email

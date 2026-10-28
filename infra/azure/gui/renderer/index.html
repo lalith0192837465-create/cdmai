@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CDM — Install on Azure</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> CDM Installer — Azure</div>
+
+    <div class="wprog">
+      <i id="p1" class="on"></i>
+      <i id="p2"></i>
+      <i id="p3"></i>
+    </div>
+
+    <div id="errBox" class="alert alert-err"></div>
+
+    <!-- STEP 1 -->
+    <div id="step1" class="card">
+      <h2>Connect your Azure subscription</h2>
+      <p class="lede">Upload your Service Principal JSON file (or paste your Azure IDs below) and choose the Azure region for CDM.</p>
+
+      <div class="field">
+        <label>Azure Service Principal JSON (optional quick-fill)</label>
+        <div class="file-box">
+          <span id="jsonStatus" class="file-status">Upload credentials .json from Azure Service Principal</span>
+          <button id="pickJsonBtn" class="btn btn-ghost" style="padding:7px 14px;font-size:0.82rem">Choose .json file</button>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="azure_subscription_id">Subscription ID *</label>
+          <input id="azure_subscription_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </div>
+        <div class="field">
+          <label for="azure_tenant_id">Tenant ID *</label>
+          <input id="azure_tenant_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="azure_client_id">Client ID (App ID) *</label>
+          <input id="azure_client_id" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </div>
+        <div class="field">
+          <label for="azure_client_secret">Client Secret *</label>
+          <input id="azure_client_secret" type="password" placeholder="Service Principal secret">
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="azure_region">Azure Region *</label>
+          <select id="azure_region">
+            <option value="eastus">East US — Virginia (eastus)</option>
+            <option value="eastus2">East US 2 — Virginia (eastus2)</option>
+            <option value="westus2">West US 2 — Washington (westus2)</option>
+            <option value="centralus">Central US — Iowa (centralus)</option>
+            <option value="westeurope">West Europe — Netherlands (westeurope)</option>
+            <option value="uksouth">UK South — London (uksouth)</option>
+            <option value="southeastasia">Southeast Asia — Singapore (southeastasia)</option>
+            <option value="japaneast">Japan East — Tokyo (japaneast)</option>
+            <option value="australiaeast">Australia East — New South Wales (australiaeast)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="project_name">Stack Name</label>
+          <input id="project_name" value="cdm" placeholder="cdm">
+        </div>
+      </div>
+
+      <div class="nav-row">
+        <span style="font-size:0.78rem;color:var(--muted)">Sets up Azure Container Apps + PostgreSQL 16 + HTTPS automatically</span>
+        <button id="nextToStep2" class="btn btn-primary">Next →</button>
+      </div>
+    </div>
+
+    <!-- STEP 2 -->
+    <div id="step2" class="card hidden">
+      <h2>Create your admin login &amp; keys</h2>
+      <p class="lede">Sign in immediately with your email and password once deployed. Everything is stored encrypted as Azure Container App secrets inside your subscription.</p>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="admin_email">Workspace Admin Email *</label>
+          <input id="admin_email" type="email" placeholder="admin@company.com">
+        </div>
+        <div class="field">
+          <label for="admin_password">Workspace Admin Password * (8+ chars)</label>
+          <input id="admin_password" type="password" placeholder="Create a strong password">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="gemini_api_key">Gemini API Key *</label>
+        <input id="gemini_api_key" type="password" placeholder="AIza...">
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="skribby_api_key">Skribby Bot Key (optional)</label>
+          <input id="skribby_api_key" type="password" placeholder="For Meet, Zoom &amp; Teams bot">
+        </div>
+        <div class="field">
+          <label for="slack_webhook_url">Slack Webhook URL (optional)</label>
+          <input id="slack_webhook_url" type="password" placeholder="https://hooks.slack.com/...">
+        </div>
+      </div>
+
+      <details class="opt-details">
+        <summary>Optional: Enable Google Sign-In (SSO)</summary>
+        <div class="grid2">
+          <div class="field field-compact">
+            <label for="google_client_id">Google Client ID (optional)</label>
+            <input id="google_client_id" placeholder="xxxx.apps.googleusercontent.com">
+          </div>
+          <div class="field field-compact">
+            <label for="google_client_secret">Google Client Secret (optional)</label>
+            <input id="google_client_secret" type="password" placeholder="GOCSPX-...">
+          </div>
+        </div>
+      </details>
+
+      <div class="nav-row">
+        <button id="backToStep1" class="btn btn-ghost">← Back</button>
+        <button id="installBtn" class="btn btn-primary">Install &amp; Launch CDM →</button>
+      </div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div id="step3" class="card hidden">
+      <h2 id="step3Title">Installing CDM on Azure</h2>
+      <p class="lede">Setting up your Resource Group, PostgreSQL 16 Flexible Server, Log Analytics, and Azure Container App (~6–10 minutes on first install).</p>
+      <div class="bar-bg"><div id="barFill" class="bar-fill"></div></div>
+      <div id="statusText" class="status-line">Starting...</div>
+      <div id="logBox" class="log"></div>
+
+      <div id="doneBox" class="done-box">
+        <h3>CDM is live on Azure!</h3>
+        <p class="file-status">Open your workspace and sign in with your Workspace Admin Email and Password.</p>
+        <div id="oauthHint" class="oauth-hint hidden">
+          <p class="file-status">Since you added Google SSO keys, add this Authorized Redirect URI in Google Cloud:</p>
+          <div class="copy-row">
+            <input id="callbackUrl" readonly>
+            <button id="copyBtn" class="btn btn-ghost">Copy</button>
+          </div>
+        </div>
+        <div class="nav-row" style="margin-top:14px">
+          <span style="font-size:0.82rem;color:var(--muted)" id="liveUrlLabel"></span>
+          <button id="openAppBtn" class="btn btn-primary">Open CDM App →</button>
+        </div>
+      </div>
+
+      <div id="retryRow" class="nav-row hidden">
+        <button id="editKeysBtn" class="btn btn-ghost">← Edit Keys</button>
+        <button id="retryBtn" class="btn btn-primary">Retry Install</button>
+      </div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

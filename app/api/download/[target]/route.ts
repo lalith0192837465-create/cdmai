@@ -13,15 +13,44 @@ const execFileAsync = promisify(execFile);
 const RELEASES_BASE = "https://github.com/lalith0192837465-create/cdmai/releases/latest/download";
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB chunks — safely below Cloud Run's 32 MB response cap
 
+type ExecutableSpec = {
+  dir: string;
+  cliFile: string;
+  assetsFile: string;
+  outPath: string;
+};
+
+const EXECUTABLE_SPECS: Record<string, ExecutableSpec> = {
+  aws: {
+    dir: "aws",
+    cliFile: "aws-cli.js",
+    assetsFile: "aws-assets.js",
+    outPath: "/tmp/CDM-AWS-Setup-v3.exe",
+  },
+  gcp: {
+    dir: "gcp",
+    cliFile: "gcp-cli.js",
+    assetsFile: "gcp-assets.js",
+    outPath: "/tmp/CDM-GCP-Setup-v3.exe",
+  },
+  azure: {
+    dir: "azure",
+    cliFile: "azure-cli.js",
+    assetsFile: "azure-assets.js",
+    outPath: "/tmp/CDM-Azure-Setup-v3.exe",
+  },
+};
+
 const TARGETS: Record<string, { file: string; contentType: string }> = {
   win: { file: "CDM-Setup-Windows.exe", contentType: "application/octet-stream" },
   mac: { file: "CDM-Setup-Mac.dmg", contentType: "application/octet-stream" },
-  aws: { file: "CDM-AWS-Setup.zip", contentType: "application/zip" },
+  aws: { file: "CDM-AWS-Setup.exe", contentType: "application/octet-stream" },
   gcp: { file: "CDM-GCP-Setup.exe", contentType: "application/octet-stream" },
+  azure: { file: "CDM-Azure-Setup.exe", contentType: "application/octet-stream" },
 };
 
-let gcpBuildPromise: Promise<{ path: string; size: number; sha256: string } | null> | null = null;
-let cachedGcpInfo: { mtimeMs: number; size: number; sha256: string } | null = null;
+const buildPromises: Record<string, Promise<{ path: string; size: number; sha256: string } | null> | null> = {};
+const cachedInfo: Record<string, { mtimeMs: number; size: number; sha256: string } | null> = {};
 
 function computeSha256(filePath: string): string {
   const hash = crypto.createHash("sha256");
@@ -29,10 +58,15 @@ function computeSha256(filePath: string): string {
   return hash.digest("hex");
 }
 
-async function ensureFreshGcpExecutable(): Promise<{ path: string; size: number; sha256: string } | null> {
-  const cliPath = path.join(process.cwd(), "infra", "gcp", "gcp-cli.js");
-  const assetsPath = path.join(process.cwd(), "infra", "gcp", "gcp-assets.js");
-  const outPath = "/tmp/CDM-GCP-Setup.exe";
+async function ensureFreshCloudExecutable(
+  target: string
+): Promise<{ path: string; size: number; sha256: string } | null> {
+  const spec = EXECUTABLE_SPECS[target];
+  if (!spec) return null;
+
+  const cliPath = path.join(process.cwd(), "infra", spec.dir, spec.cliFile);
+  const assetsPath = path.join(process.cwd(), "infra", spec.dir, spec.assetsFile);
+  const outPath = spec.outPath;
 
   if (!fs.existsSync(cliPath)) return null;
 
@@ -42,35 +76,38 @@ async function ensureFreshGcpExecutable(): Promise<{ path: string; size: number;
       const cliMtime = fs.statSync(cliPath).mtimeMs;
       const assetsMtime = fs.existsSync(assetsPath) ? fs.statSync(assetsPath).mtimeMs : 0;
       if (outStat.size > 10_000_000 && outStat.mtimeMs >= Math.max(cliMtime, assetsMtime)) {
-        if (!cachedGcpInfo || cachedGcpInfo.mtimeMs !== outStat.mtimeMs || cachedGcpInfo.size !== outStat.size) {
-          cachedGcpInfo = {
+        const cached = cachedInfo[target];
+        if (!cached || cached.mtimeMs !== outStat.mtimeMs || cached.size !== outStat.size) {
+          cachedInfo[target] = {
             mtimeMs: outStat.mtimeMs,
             size: outStat.size,
             sha256: computeSha256(outPath),
           };
         }
-        return { path: outPath, size: outStat.size, sha256: cachedGcpInfo.sha256 };
+        return { path: outPath, size: outStat.size, sha256: cachedInfo[target]!.sha256 };
       }
     }
   } catch {
     // Rebuild if check fails
   }
 
-  if (!gcpBuildPromise) {
-    gcpBuildPromise = (async () => {
+  if (!buildPromises[target]) {
+    buildPromises[target] = (async () => {
       try {
-        const tmpBuild = `/tmp/CDM-GCP-Setup.${Date.now()}.exe`;
+        const tmpBuild = `${outPath}.${Date.now()}.exe`;
         await execFileAsync(
           "npx",
           [
             "--yes",
             "@yao-pkg/pkg@6.23.0",
+            "--no-bytecode",
+            "--public",
+            "--public-packages",
+            "*",
             "--target",
             "node22-win-x64",
             "--output",
             tmpBuild,
-            "--public-packages",
-            "*",
             cliPath,
           ],
           { cwd: process.cwd(), timeout: 120_000 }
@@ -79,18 +116,18 @@ async function ensureFreshGcpExecutable(): Promise<{ path: string; size: number;
         fs.renameSync(tmpBuild, outPath);
         const stat = fs.statSync(outPath);
         const sha256 = computeSha256(outPath);
-        cachedGcpInfo = { mtimeMs: stat.mtimeMs, size: stat.size, sha256 };
+        cachedInfo[target] = { mtimeMs: stat.mtimeMs, size: stat.size, sha256 };
         return { path: outPath, size: stat.size, sha256 };
       } catch (err) {
-        console.warn("[Download] Local GCP executable build unavailable:", err);
+        console.warn(`[Download] Local ${target.toUpperCase()} executable build unavailable:`, err);
         return null;
       } finally {
-        gcpBuildPromise = null;
+        buildPromises[target] = null;
       }
     })();
   }
 
-  return gcpBuildPromise;
+  return buildPromises[target]!;
 }
 
 async function resolveDirectGithubAssetUrl(file: string): Promise<string | null> {
@@ -126,8 +163,8 @@ export async function GET(
   const search = req.nextUrl.searchParams;
   const isMeta = search.get("meta") === "1";
 
-  if (target === "gcp") {
-    const built = await ensureFreshGcpExecutable();
+  if (target === "aws" || target === "gcp" || target === "azure") {
+    const built = await ensureFreshCloudExecutable(target);
     if (built && fs.existsSync(built.path)) {
       if (isMeta) {
         return NextResponse.json({
@@ -145,7 +182,12 @@ export async function GET(
       if (startParam !== null && endParam !== null) {
         const start = Math.max(0, Number(startParam));
         const end = Math.min(built.size - 1, Number(endParam));
-        if (!Number.isInteger(start) || !Number.isInteger(end) || start > end || end - start + 1 > 16 * 1024 * 1024) {
+        if (
+          !Number.isInteger(start) ||
+          !Number.isInteger(end) ||
+          start > end ||
+          end - start + 1 > 16 * 1024 * 1024
+        ) {
           return NextResponse.json({ ok: false, error: "Invalid byte range" }, { status: 400 });
         }
         const length = end - start + 1;
@@ -168,7 +210,6 @@ export async function GET(
     }
   }
 
-  // Fallback / GitHub Release resolution (resolves github.com 302s server-side so iframe never hits X-Frame-Options: deny)
   try {
     const directUrl = await resolveDirectGithubAssetUrl(item.file);
     if (!directUrl) {

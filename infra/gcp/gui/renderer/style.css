@@ -56,4 +56,15 @@ input:focus, select:focus { outline: 2px solid var(--accent); border-color: tran
 }
 .done-box h3 { font-size: 1rem; color: #6BD99E; margin-bottom: 6px; }
 .copy-row { display: flex; gap: 8px; margin-top: 8px; }
+.opt-details {
+  margin-top: 6px; margin-bottom: 14px; border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px; background: #0E0E12;
+}
+.opt-details summary {
+  cursor: pointer; font-size: 0.83rem; color: var(--muted); font-weight: 500; user-select: none;
+}
+.opt-details[open] summary { margin-bottom: 12px; color: var(--text); }
+.field-compact { margin-bottom: 0; }
+.oauth-hint { margin-top: 10px; margin-bottom: 6px; }
 .hidden { display: none; }
+

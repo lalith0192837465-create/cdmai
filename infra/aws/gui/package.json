@@ -1,0 +1,48 @@
+{
+  "name": "cdm-aws",
+  "version": "1.2.4",
+  "private": true,
+  "description": "CDM AWS direct application installer",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "ai.cdm.aws",
+    "productName": "CDM AWS",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "aws-cli.exe",
+        "to": "aws-cli.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "CDM-AWS-Setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "CDM-AWS-Setup.${ext}"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

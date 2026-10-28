@@ -1,5 +1,5 @@
 {
   "name": "CDM — Deal Coordination",
   "description": "Turn sales calls into coordinated deal action across Engineering, Finance, and Legal.",
-  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -8,8 +8,13 @@ function createWindow() { win = new BrowserWindow({ width: 680, height: 780, res
 app.whenReady().then(createWindow); app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 function send(status) { win?.webContents.send("status", status); }
 ipcMain.handle("open-cloud-package", async (_event, target) => {
-  if (target !== "aws" && target !== "gcp") return { ok: false, error: "Unknown cloud package." };
-  const file = target === "aws" ? "CDM-AWS-Setup.zip" : "CDM-GCP-Setup.exe";
+  const packages = {
+    aws: "CDM-AWS-Setup.exe",
+    gcp: "CDM-GCP-Setup.exe",
+    azure: "CDM-Azure-Setup.exe",
+  };
+  const file = packages[target];
+  if (!file) return { ok: false, error: "Unknown cloud package." };
   try { await shell.openExternal(`${RELEASES}/${file}`); return { ok: true }; }
   catch (e) { return { ok: false, error: String(e?.message || e) }; }
 });
@@ -39,6 +44,8 @@ DATABASE_URL="postgresql://cdm:${pgPass}@db:5432/cdm"
 NEXTAUTH_URL="${domain}"
 APP_URL="${domain}"
 NEXTAUTH_SECRET="${secret}"
+ADMIN_EMAIL="${config.adminEmail || ""}"
+ADMIN_PASSWORD="${config.adminPassword || ""}"
 GOOGLE_CLIENT_ID="${config.gid || ""}"
 GOOGLE_CLIENT_SECRET="${config.gsecret || ""}"
 GEMINI_API_KEY="${config.gemini || ""}"

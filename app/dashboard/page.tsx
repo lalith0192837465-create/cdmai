@@ -25,6 +25,11 @@ export default function Dashboard() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [expandedDealId, setExpandedDealId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [meetingUrl, setMeetingUrl] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [sendingBot, setSendingBot] = useState(false);
+  const [botError, setBotError] = useState("");
+  const [botSuccess, setBotSuccess] = useState("");
 
   useEffect(() => {
     fetch("/api/auth/session").then((r) => r.json()).then((data) => {
@@ -34,7 +39,10 @@ export default function Dashboard() {
   }, [router]);
 
   useEffect(() => {
-    if (status === "authenticated") fetchDeals();
+    if (status !== "authenticated") return;
+    fetchDeals();
+    const id = setInterval(fetchDeals, 10000);
+    return () => clearInterval(id);
   }, [status]);
 
   const fetchDeals = async () => {
@@ -46,6 +54,36 @@ export default function Dashboard() {
       console.error("Failed to fetch deals:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const sendBotToMeeting = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBotError("");
+    setBotSuccess("");
+    setSendingBot(true);
+    try {
+      const response = await fetch("/api/deals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          meetingUrl: meetingUrl.trim(),
+          customerName: customerName.trim() || undefined,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setBotError(data.error || "Could not send CDM to this meeting.");
+        return;
+      }
+      setBotSuccess(`CDM Assistant is joining your ${data.platform || "meeting"} call.`);
+      setMeetingUrl("");
+      setCustomerName("");
+      fetchDeals();
+    } catch {
+      setBotError("Network error while sending CDM to the meeting.");
+    } finally {
+      setSendingBot(false);
     }
   };
 
@@ -70,16 +108,87 @@ export default function Dashboard() {
   }
   if (!session) return null;
 
+  const listening = deals.filter((d) => d.confirmationStatus === "listening");
   const pending = deals.filter((d) => d.confirmationStatus === "pending");
   const confirmed = deals.filter((d) => d.confirmationStatus === "confirmed");
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8f9fa", padding: "2rem" }}>
+    <div style={{ minHeight: "100vh", background: "#f8f9fa", padding: "2rem", color: "#111827" }}>
       <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
-        <div style={{ marginBottom: "2rem" }}>
+        <div style={{ marginBottom: "1.5rem" }}>
           <h1 style={{ fontSize: "28px", fontWeight: 600, marginBottom: "8px" }}>Deal coordination</h1>
-          <p style={{ fontSize: "14px", color: "#6b7280" }}>Manage your pipeline in real time</p>
+          <p style={{ fontSize: "14px", color: "#6b7280" }}>
+            Send CDM to Google Meet, Zoom, or Microsoft Teams calls and route confirmed deals in real time
+          </p>
         </div>
+
+        <form
+          onSubmit={sendBotToMeeting}
+          style={{
+            background: "white",
+            border: "1px solid #e0e0e0",
+            borderRadius: "12px",
+            padding: "1.25rem 1.5rem",
+            marginBottom: "2rem",
+          }}
+        >
+          <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "10px" }}>
+            Send CDM to a live call (Google Meet, Zoom, or Microsoft Teams)
+          </p>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <input
+              type="url"
+              required
+              value={meetingUrl}
+              onChange={(e) => setMeetingUrl(e.target.value)}
+              placeholder="Paste Google Meet, Zoom (?pwd=...), or Microsoft Teams link"
+              style={{
+                flex: 2,
+                minWidth: "260px",
+                padding: "10px 12px",
+                border: "1px solid #d1d5db",
+                borderRadius: "8px",
+                fontSize: "14px",
+              }}
+            />
+            <input
+              type="text"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder="Customer name (optional)"
+              style={{
+                flex: 1,
+                minWidth: "180px",
+                padding: "10px 12px",
+                border: "1px solid #d1d5db",
+                borderRadius: "8px",
+                fontSize: "14px",
+              }}
+            />
+            <button
+              type="submit"
+              disabled={sendingBot}
+              style={{
+                padding: "10px 18px",
+                background: "#3b82f6",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                fontWeight: 600,
+                fontSize: "14px",
+                cursor: sendingBot ? "wait" : "pointer",
+              }}
+            >
+              {sendingBot ? "Sending…" : "Send CDM"}
+            </button>
+          </div>
+          {botError && (
+            <p style={{ color: "#b91c1c", fontSize: "13px", marginTop: "10px" }}>{botError}</p>
+          )}
+          {botSuccess && (
+            <p style={{ color: "#15803d", fontSize: "13px", marginTop: "10px" }}>{botSuccess}</p>
+          )}
+        </form>
 
         <div style={{ display: "flex", gap: "2rem", marginBottom: "2rem", borderBottom: "1px solid #e0e0e0" }}>
           {(["awaiting", "queue", "custom"] as const).map((tab) => (
@@ -104,6 +213,47 @@ export default function Dashboard() {
 
         {activeTab === "awaiting" && (
           <div>
+            {listening.length > 0 && (
+              <div style={{ marginBottom: "1.75rem" }}>
+                <h2 style={{ fontSize: "15px", fontWeight: 600, marginBottom: "0.75rem", color: "#1d4ed8" }}>
+                  Active calls in progress ({listening.length})
+                </h2>
+                {listening.map((deal) => (
+                  <div
+                    key={deal.id}
+                    style={{
+                      background: "#eff6ff",
+                      border: "1px solid #bfdbfe",
+                      borderRadius: "12px",
+                      padding: "1rem 1.25rem",
+                      marginBottom: "0.75rem",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <strong style={{ fontSize: "14px" }}>{deal.customerName}</strong>
+                      <p style={{ fontSize: "13px", color: "#3b82f6", marginTop: "2px" }}>
+                        {deal.dealName || "Listening to live call — terms will extract automatically when the call ends"}
+                      </p>
+                    </div>
+                    <span
+                      style={{
+                        background: "#dbeafe",
+                        color: "#1e40af",
+                        padding: "4px 10px",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                      }}
+                    >
+                      Listening
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
             <h2 style={{ fontSize: "16px", fontWeight: 500, marginBottom: "1.5rem" }}>
               {pending.length} deal{pending.length !== 1 ? "s" : ""} waiting for review
             </h2>

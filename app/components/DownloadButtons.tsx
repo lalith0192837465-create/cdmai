@@ -1,15 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-const OPTIONS = [
-  { id: "aws", label: "AWS", file: "CDM-AWS-Setup.zip" },
-  { id: "gcp", label: "Google Cloud", file: "CDM-GCP-Setup.exe" },
+type CloudTarget = "aws" | "gcp" | "azure";
+
+const CLOUD_OPTIONS: { target: CloudTarget; label: string; filename: string }[] = [
+  { target: "aws", label: "AWS", filename: "CDM-AWS-Setup.exe" },
+  { target: "gcp", label: "Google Cloud", filename: "CDM-GCP-Setup.exe" },
+  { target: "azure", label: "Azure", filename: "CDM-Azure-Setup.exe" },
 ];
-
-function detectOS(): string {
-  if (typeof navigator === "undefined") return "win";
-  return navigator.userAgent.includes("Mac") ? "mac" : "win";
-}
 
 async function sha256Hex(blob: Blob): Promise<string> {
   const buf = await blob.arrayBuffer();
@@ -20,24 +18,19 @@ async function sha256Hex(blob: Blob): Promise<string> {
 }
 
 export default function DownloadButtons() {
-  const [detected, setDetected] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [statusMap, setStatusMap] = useState<Record<string, string>>({});
+  const [activeTarget, setActiveTarget] = useState<CloudTarget | null>(null);
+  const [statusText, setStatusText] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    setDetected(detectOS());
-  }, []);
-
-  async function handleDownload(e: React.MouseEvent, opt: (typeof OPTIONS)[number]) {
+  async function handleCloudDownload(target: CloudTarget, fallbackFilename: string, e: React.MouseEvent) {
     e.preventDefault();
-    if (busyId) return;
+    if (activeTarget) return;
     setErrorMsg(null);
-    setBusyId(opt.id);
-    setStatusMap((prev) => ({ ...prev, [opt.id]: "Preparing..." }));
+    setActiveTarget(target);
+    setStatusText("Preparing...");
 
     try {
-      const metaRes = await fetch(`/api/download/${opt.id}?meta=1`, { cache: "no-store" });
+      const metaRes = await fetch(`/api/download/${target}?meta=1`, { cache: "no-store" });
       const meta = await metaRes.json();
       if (!metaRes.ok || !meta?.ok) {
         throw new Error(meta?.error || "Could not prepare download.");
@@ -46,11 +39,11 @@ export default function DownloadButtons() {
       if (meta.mode === "direct" && meta.directUrl) {
         const a = document.createElement("a");
         a.href = meta.directUrl;
-        a.download = opt.file;
+        a.download = meta.filename || fallbackFilename;
         document.body.appendChild(a);
         a.click();
         a.remove();
-        setStatusMap((prev) => ({ ...prev, [opt.id]: "" }));
+        setStatusText("");
         return;
       }
 
@@ -63,9 +56,9 @@ export default function DownloadButtons() {
         for (let start = 0; start < totalSize; start += chunkSize) {
           const end = Math.min(totalSize - 1, start + chunkSize - 1);
           const pct = Math.round((received / totalSize) * 100);
-          setStatusMap((prev) => ({ ...prev, [opt.id]: `Downloading ${pct}%...` }));
+          setStatusText(`Downloading ${pct}%...`);
 
-          const chunkRes = await fetch(`/api/download/${opt.id}?start=${start}&end=${end}`, {
+          const chunkRes = await fetch(`/api/download/${target}?start=${start}&end=${end}`, {
             cache: "no-store",
           });
           if (!chunkRes.ok) {
@@ -87,7 +80,7 @@ export default function DownloadButtons() {
           throw new Error("File size mismatch.");
         }
 
-        setStatusMap((prev) => ({ ...prev, [opt.id]: "Verifying..." }));
+        setStatusText("Verifying...");
         const blob = new Blob(parts as BlobPart[], { type: "application/octet-stream" });
         if (meta.sha256 && typeof crypto !== "undefined" && crypto.subtle) {
           const actualHash = await sha256Hex(blob);
@@ -99,42 +92,52 @@ export default function DownloadButtons() {
         const blobUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = blobUrl;
-        a.download = meta.filename || opt.file;
+        a.download = meta.filename || fallbackFilename;
         document.body.appendChild(a);
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
-        setStatusMap((prev) => ({ ...prev, [opt.id]: "" }));
+        setStatusText("");
       }
     } catch (err: any) {
       setErrorMsg(err?.message || "Download failed.");
-      setStatusMap((prev) => ({ ...prev, [opt.id]: "" }));
+      setStatusText("");
     } finally {
-      setBusyId(null);
+      setActiveTarget(null);
     }
   }
 
   return (
     <div>
-      <div className="grid-4">
-        {OPTIONS.map((opt) => (
-          <a
-            key={opt.id}
-            href={`/api/download/${opt.id}`}
-            onClick={(e) => handleDownload(e, opt)}
-            className={`download-card${detected === opt.id ? " recommended" : ""}`}
-            style={{ opacity: busyId && busyId !== opt.id ? 0.6 : 1 }}
-          >
-            {detected === opt.id && <span className="tag">Recommended for you</span>}
-            <h3>{statusMap[opt.id] || opt.label}</h3>
-          </a>
-        ))}
+      <div className="download-grid-3">
+        {CLOUD_OPTIONS.map(({ target, label, filename }) => {
+          const isBusy = activeTarget === target;
+          const otherBusy = activeTarget !== null && !isBusy;
+          const cardClass = [
+            "download-card recommended",
+            isBusy ? "busy-active" : "",
+            otherBusy ? "busy-other" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          return (
+            <a
+              key={target}
+              href={`/api/download/${target}`}
+              onClick={(e) => handleCloudDownload(target, filename, e)}
+              className={cardClass}
+            >
+              <h3>{isBusy ? statusText || label : label}</h3>
+              <span className="download-sub">
+                {isBusy ? "Please keep this tab open" : "Download guided installer"}
+              </span>
+            </a>
+          );
+        })}
       </div>
-      {errorMsg && (
-        <p style={{ color: "#E5484D", fontSize: "0.85rem", marginTop: "12px", textAlign: "center" }}>
-          {errorMsg}
-        </p>
-      )}
+
+      {errorMsg && <p className="download-error">{errorMsg}</p>}
     </div>
   );
 }

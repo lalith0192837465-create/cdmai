@@ -1,4 +1,5 @@
 import axios from "axios";
+import { GoogleGenAI } from "@google/genai";
 
 export interface ExtractedDeal {
   customerName: string;
@@ -14,23 +15,44 @@ export interface ExtractedDeal {
   confidence: Record<string, number>;
 }
 
+const SYSTEM_PROMPT = `You are a deal extraction AI. Return ONLY valid JSON with customerName, dealName, dealAmount, dealTerm, discount, trialDays, customRequirements, financeNotes, engineeringNotes, legalNotes, confidence. If no clearly closed deal, return {"uncertain":true}.`;
+
 export async function extractDealFromTranscript(
   transcript: string
 ): Promise<ExtractedDeal | null> {
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
   if (geminiKey) {
     try {
-      const response = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`, {
-        systemInstruction: { parts: [{ text: `You are a deal extraction AI. Return ONLY valid JSON with customerName, dealName, dealAmount, dealTerm, discount, trialDays, customRequirements, financeNotes, engineeringNotes, legalNotes, confidence. If no clearly closed deal, return {"uncertain":true}.` }] },
-        contents: [{ role: "user", parts: [{ text: `Extract deal information from this transcript:\n\n${transcript}` }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
-      });
-      const text = response.data.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
-      const parsed = JSON.parse(text); if (parsed.uncertain) return null; return parsed as ExtractedDeal;
-    } catch (error) { console.error("Gemini extraction error:", error); return null; }
+      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      const models = ["gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.8-flash"];
+      for (const model of models) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: `Extract deal information from this transcript:\n\n${transcript}`,
+            config: {
+              systemInstruction: SYSTEM_PROMPT,
+              responseMimeType: "application/json",
+              temperature: 0.1,
+              abortSignal: AbortSignal.timeout(15000),
+            },
+          });
+          const text = response.text || "";
+          if (!text) continue;
+          const parsed = JSON.parse(text);
+          if (parsed.uncertain) return null;
+          return parsed as ExtractedDeal;
+        } catch {
+          // Try next model on transient 503
+        }
+      }
+    } catch (error) {
+      console.error("Gemini extraction error:", error);
+    }
   }
+
   if (!process.env.ANTHROPIC_API_KEY) {
-    console.error("ANTHROPIC_API_KEY or GEMINI_API_KEY not set");
+    console.error("GEMINI_API_KEY or ANTHROPIC_API_KEY not set");
     return null;
   }
 
@@ -40,24 +62,7 @@ export async function extractDealFromTranscript(
       {
         model: "claude-opus-4-6",
         max_tokens: 2000,
-        system: `You are a deal extraction AI. Analyze sales call transcripts and extract structured deal information.
-
-Return ONLY valid JSON with this structure, nothing else:
-{
-  "customerName": "company name",
-  "dealName": "deal title",
-  "dealAmount": 250000,
-  "dealTerm": "3 years",
-  "discount": 15,
-  "trialDays": 30,
-  "customRequirements": "any custom terms",
-  "financeNotes": ["invoice for $250K annually", "apply 15% discount"],
-  "engineeringNotes": ["provision 24/7 support", "custom SSO integration"],
-  "legalNotes": ["review SLA terms", "check data residency"],
-  "confidence": { "customerName": 99, "dealAmount": 99, "dealTerm": 95, "discount": 87 }
-}
-
-Only extract if a deal was clearly closed. If uncertain, return {"uncertain": true}.`,
+        system: SYSTEM_PROMPT,
         messages: [
           {
             role: "user",
